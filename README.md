@@ -4,6 +4,8 @@ A research project grown out of curiosity. Cracks 6 bytes of pin code via 500 Kb
 
 Big thanks to an unidentified hacker from western Germany for hints!
 
+![Image](doc/schematic.png)
+
 ![Image](doc/pin.png)
 
 [![Image](http://img.youtube.com/vi/Bue_y5tDNzQ/0.jpg)](http://www.youtube.com/watch?v=Bue_y5tDNzQ "Cracking CEM pin in under 5 minutes")
