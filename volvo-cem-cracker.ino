@@ -178,7 +178,7 @@ void cem_diag_latency()
     for (int k = 0; k < PIN_LEN; k++) {
       if (i == k)
         printf("[ ");
-      printf("0x%02x ", pin[k]);
+      printf("0x%02x ", known_pin[k]);
       if (i == k)
         printf("] ");
     }
