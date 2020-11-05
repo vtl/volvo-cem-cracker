@@ -10,26 +10,17 @@
 #include <mcp_can.h>
 #include <mcp_can_dfs.h>
 
-#define printf Serial.printf
-
 /* tunables */
 #define SAMPLES      30  /* how many samples to do on a sequence, more is better (up to 100) */
-#define CALC_BYTES    4  /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define CALC_BYTES    3  /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_REPLY_DELAY_US 80 /* minimum time in us for CEM to reply for PIN unlock command (approx) */
 
-#if defined(TEENSYDUINO) /* Teensy 4.0 */
 #define CAN_CS_PIN    2  /* MCP2515 chip select pin */
 #define CAN_INTR_PIN  4  /* MCP2515 interrupt pin */
 #define CAN_L_PIN    10  /* CAN-L wire, directly connected */
 #define TSC ARM_DWT_CYCCNT
-#elif defined(ESP32)     /* ESP32 Node32s */
-#define CAN_CS_PIN   27  /* MCP2515 chip select pin */
-#define CAN_INTR_PIN 34  /* MCP2515 interrupt pin */
-#define CAN_L_PIN    26  /* CAN-L wire, directly connected */
-#define TSC xthal_get_ccount()
-#else
-#error "TEENSY or ESP32"
-#endif
+#define CEM_REPLY_US 200
+#define printf Serial.printf
 
 #define PIN_LEN       6
 
@@ -42,13 +33,6 @@ void cem_send(unsigned long id, byte *d)
   if (cem_print)
     printf("send: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n", id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
   CAN.sendMsgBuf(id, 1, 8, d);
-}
-
-void cem_send1(unsigned long id, byte *d)
-{
-  if (cem_print)
-    printf("send: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n", id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
-  CAN.sendMsg1(id, 1, 0, 8, d, false);
 }
 
 bool cem_receive(bool wait, unsigned long *id, byte *data)
@@ -214,7 +198,7 @@ int seq_max(const void *a, const void *b)
 
 void crack_pin_pos(byte *pin, int pos)
 {
-  int h[100];
+  int h[CEM_REPLY_US];
   int lat;
   bool shuffle = true;
   cem_print = false;
@@ -237,13 +221,15 @@ void crack_pin_pos(byte *pin, int pos)
       pin[pos + 2] = to_bcd(j);
       cem_unlock(pin, &lat, shuffle);
       int idx = lat / clockCyclesPerMicrosecond();
+      if (idx >= CEM_REPLY_US)
+        idx = CEM_REPLY_US - 1;
       h[idx]++;
     }
     pin[pos + 2] = 0;
 
     if ((i % 100) == 99) {
       int prod = 0;
-      for (int k = 0; k < 100; k++) {
+      for (int k = 0; k < CEM_REPLY_US; k++) {
         if (k > 81 && k < 95)
           printf("%03d ", h[k]);
         prod += h[k] * k;
@@ -303,12 +289,13 @@ void cem_crack_pin(int max_bytes)
 }
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(3000);
   pinMode(CAN_L_PIN, INPUT_PULLUP);
   pinMode(CAN_INTR_PIN, INPUT);
   printf("F_CPU %d\n", F_CPU);
-
+  printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
+  printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
   printf("can init\n");
   while (MCP2515_OK != CAN.begin(CAN_500KBPS, MCP_8MHz)) {
     delay(1000);
