@@ -11,28 +11,43 @@
 #include <mcp_can_dfs.h>
 
 /* tunables */
+//#define HAS_CAN_LS       /* CEM is in the car, both LS and HS CAN-buses need to go into programming mode */
 #define SAMPLES      30  /* how many samples to do on a sequence, more is better (up to 100) */
 #define CALC_BYTES    3  /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_REPLY_DELAY_US 80 /* minimum time in us for CEM to reply for PIN unlock command (approx) */
 
-#define CAN_CS_PIN    2  /* MCP2515 chip select pin */
-#define CAN_INTR_PIN  4  /* MCP2515 interrupt pin */
-#define CAN_L_PIN    10  /* CAN-L wire, directly connected */
+#define CAN_HS_CS_PIN 2  /* MCP2515 chip select pin CAN-HS */
+#define CAN_LS_CS_PIN 3  /* MCP2515 chip select pin CAN-LS */
+#define CAN_INTR_PIN  4  /* MCP2515 interrupt pin CAN-HS */
+#define CAN_L_PIN    10  /* CAN-HS- wire, directly connected (CAN-HS, Low)*/
 #define TSC ARM_DWT_CYCCNT
 #define CEM_REPLY_US 200
 #define printf Serial.printf
 
+#define CAN_HS_BAUD CAN_500KBPS
+#define CAN_LS_BAUD CAN_125KBPS
+
 #define PIN_LEN       6
 
-MCP_CAN CAN(CAN_CS_PIN);
+MCP_CAN CAN_HS(CAN_HS_CS_PIN);
+MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 
 bool cem_print = true;
 
-void cem_send(unsigned long id, byte *d)
+void cem_send_bus(MCP_CAN &bus, unsigned long id, byte *d)
 {
+#ifndef HAS_CAN_LS
+  if (&bus == &CAN_LS)
+    return;
+#endif
   if (cem_print)
     printf("send: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n", id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
-  CAN.sendMsgBuf(id, 1, 8, d);
+  bus.sendMsgBuf(id, 1, 8, d);
+}
+
+void cem_send(unsigned long id, byte *d)
+{
+  cem_send_bus(CAN_HS, id, d);
 }
 
 bool cem_receive(bool wait, unsigned long *id, byte *data)
@@ -43,10 +58,10 @@ bool cem_receive(bool wait, unsigned long *id, byte *data)
   unsigned long can_id = 0;
 
   do {
-    ret = (CAN.checkReceive() == CAN_MSGAVAIL);
+    ret = (CAN_HS.checkReceive() == CAN_MSGAVAIL);
     if (ret) {
-      CAN.readMsgBuf(&len, d);
-      can_id = CAN.getCanId();
+      CAN_HS.readMsgBuf(&len, d);
+      can_id = CAN_HS.getCanId();
     }
   } while (!ret && wait);
 
@@ -165,10 +180,10 @@ void cem_programming_mode_on()
   int cp = cem_print;
 
   printf("sending CEM into programming mode\n");
-  cem_send(0xFFFFE, data);
-  cem_print = false;
   while (time > 0) {
-    cem_send(0xFFFFE, data);
+    cem_send_bus(CAN_HS, 0xffffe, data);
+    cem_send_bus(CAN_LS, 0xffffe, data);
+    cem_print = false;
     time -= _delay;
     delay(_delay);
   }
@@ -180,7 +195,9 @@ void cem_reset()
   byte data[8] = { 0xFF, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   printf("reset CEM\n");
   for (int i = 0; i < 50; i++) {
-    cem_send(0xFFFFE, data);  delay(100);
+    cem_send_bus(CAN_HS, 0xffffe, data);
+    cem_send_bus(CAN_LS, 0xffffe, data);
+    delay(100);
   }
 }
 
@@ -296,11 +313,18 @@ void setup() {
   printf("F_CPU %d\n", F_CPU);
   printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
   printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
-  printf("can init\n");
-  while (MCP2515_OK != CAN.begin(CAN_500KBPS, MCP_8MHz)) {
+  printf("CAN_HS init\n");
+  while (MCP2515_OK != CAN_HS.begin(CAN_HS_BAUD, MCP_8MHz)) {
     delay(1000);
   }
   attachInterrupt(digitalPinToInterrupt(CAN_INTR_PIN), cem_intr, FALLING);
+
+#ifdef HAS_CAN_LS
+  printf("CAN_LS init\n");
+  while (MCP2515_OK != CAN_LS.begin(CAN_LS_BAUD, MCP_8MHz)) {
+    delay(1000);
+  }
+#endif
 
   printf("done\n");
 
