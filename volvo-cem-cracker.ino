@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 /*
- * Copyright (C) 2019, 2020 Vitaly Mayatskikh <v.mayatskih@gmail.com>
+ * Copyright (C) 2020 Vitaly Mayatskikh <v.mayatskih@gmail.com>
+ *                    Christian Molson <christian@cmolabs.org>
  *
  * This work is licensed under the terms of the GNU GPL, version 3.
  *
@@ -34,7 +35,7 @@
 
 #if defined(PLATFORM_P2)
 #define BUCKETS_PER_US 1                           /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
-#define CEM_REPLY_DELAY_US (80*BUCKETS_PER_US)     /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+#define CEM_REPLY_DELAY_US (30*BUCKETS_PER_US)     /* minimum time in us for CEM to reply for PIN unlock command (approx) */
 int shuffle_order[] = { 3, 1, 5, 0, 2, 4 };
 
 #elif defined(PLATFORM_P1)
