@@ -15,18 +15,39 @@
  * 
  * MCP2515 Library: https://github.com/Seeed-Studio/CAN_BUS_Shield.git
  *
+ * Hardware selection:
+ *
+ * Defining USE_MCP2515 will configure the use of external MCP2515 CAN bus 
+ * controllers as described in the schematic.  If USE_MCP2515 is not defined,
+ * the internal Teensy CAN0/CAN1 bus controllers are used.
+ * 
+ * If the internal controllers are selected, the FlexCAN_T4 library must be
+ * available in your library (should already be present as part of Teensyduino).
+ * CAN0 is used for the high-speed bus and CAN1 is used for the low-speed bus.
+ * External transcievers must be used to connect the Teensy to the CAN bus.
+ *
+ * To enable the sampling of the high-speed CAN bus, the CAN0 receive pin
+ * (pin 6 on Teensy 3.6) must be connected to digital input 2 (pin 4 on
+ * Teensy 3.6).
+ *
  */
 
-#include <SPI.h>
-#include <mcp_can.h>
-#include <mcp_can_dfs.h>
+#define USE_MCP2515
+
+#if defined(USE_MCP2515)
+ #include <SPI.h>
+ #include <mcp_can.h>
+ #include <mcp_can_dfs.h>
+#else
+ #include <FlexCAN_T4.h>
+#endif
 
 /* tunables */
 
-//#define PLATFORM_P1 /* P1 Platform (S40/V50/C30/C70) MC9S12xxXXX based */
-#define PLATFORM_P2 /* P2 Platform (S60/S80/V70/XC70/XC90*/
+#undef  PLATFORM_P1 /* P1 Platform (S40/V50/C30/C70) MC9S12xxXXX based */
+#define PLATFORM_P2 /* P2 Platform (S60/S80/V70/XC70/XC90) M32C based */
 
-//#define HAS_CAN_LS        /* CEM is in the car, both LS and HS CAN-buses need to go into programming mode */
+#undef  HAS_CAN_LS          /* CEM is in the car, both LS and HS CAN-buses need to go into programming mode */
 #define SAMPLES        30   /* how many samples to do on a sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define NUM_LOOPS      1000 /* how many loops to do when calculating crack rate */
@@ -35,6 +56,7 @@
 #if defined(PLATFORM_P2)
 #define BUCKETS_PER_US 1                           /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
 #define CEM_REPLY_DELAY_US (80*BUCKETS_PER_US)     /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+
 int shuffle_order[] = { 3, 1, 5, 0, 2, 4 };
 
 #elif defined(PLATFORM_P1)
@@ -42,22 +64,59 @@ int shuffle_order[] = { 3, 1, 5, 0, 2, 4 };
 #define AVERAGE_DELTA_MIN   (16*BUCKETS_PER_US)     /* Buckets to look at before the average */
 #define AVERAGE_DELTA_MAX   (32*BUCKETS_PER_US)     /* Buckets to look at after the average  */
 #define CEM_REPLY_DELAY_US  (200*BUCKETS_PER_US)    /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+
 /* P1 processes the key in order
    The order in flash is still shuffled though
    Order in flash: 5, 2, 1, 4, 0, 3
 */
+
 int shuffle_order[] = { 0, 1, 2, 3, 4, 5 };
 
 #else
 #error Platform required // Must pick PLATFORM_P1 or PLATFORM_P2 above
 #endif
 
+#if defined(USE_MCP2515)
+
 #define CAN_HS_CS_PIN 2  /* MCP2515 chip select pin CAN-HS */
 #define CAN_LS_CS_PIN 3  /* MCP2515 chip select pin CAN-LS */
 #define CAN_INTR_PIN  4  /* MCP2515 interrupt pin CAN-HS */
 #define CAN_L_PIN    10  /* CAN-HS- wire, directly connected (CAN-HS, Low)*/
+
+#define MCP2515_CLOCK MCP_8MHz /* Different boards may have a different crystal, Seed Studio is MCP_16MHZ */
+
+MCP_CAN CAN_HS(CAN_HS_CS_PIN);
+MCP_CAN CAN_LS(CAN_LS_CS_PIN);
+
+#define ENABLE_INTERRUPTS
+
+#else /* FlexCAN */
+
+#define CAN_L_PIN    2   /* CAN Rx pin connected to digital pin 2 */
+
+#define CAN_500KBPS 500000      /* 500 Kbit speed */
+#define CAN_125KBPS 125000      /* 125 Kbit speed */
+
+#define CAN_HS_SPEED CAN_500KBPS
+#define CAN_LS_SPEED CAN_125KBPS
+
+/* disable interrupt support */
+
+#undef ENABLE_INTERRUPTS
+
+/* CAN 0/1 controller objects */
+
+FlexCAN_T4<CAN0, RX_SIZE_256, TX_SIZE_16> can_hs;
+FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can_ls;
+
+typedef enum {
+  CAN_HS,       /* high-speed bus */
+  CAN_LS        /* low-speed bus */
+} can_bus_id;
+
+#endif /* USE_MCP2515 */
+
 #define TSC ARM_DWT_CYCCNT
-#define MCP2515_CLOCK MCP_8MHz /*Different boards may have a different crystal, Seed Studio is MCP_16MHZ */
 #define CEM_REPLY_US (200 * BUCKETS_PER_US)
 #define printf Serial.printf
 
@@ -66,22 +125,54 @@ int shuffle_order[] = { 0, 1, 2, 3, 4, 5 };
 
 #define PIN_LEN       6
 
-MCP_CAN CAN_HS(CAN_HS_CS_PIN);
-MCP_CAN CAN_LS(CAN_LS_CS_PIN);
-
 bool cem_print = true;
 long average_response = 0;
 
+#if defined(USE_MCP2515)
 void cem_send_bus(MCP_CAN &bus, unsigned long id, byte *d)
 {
+
 #ifndef HAS_CAN_LS
   if (&bus == &CAN_LS)
     return;
 #endif
   if (cem_print)
-    printf("send: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n", id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+    printf("send: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+           id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
   bus.sendMsgBuf(id, 1, 8, d);
 }
+
+#else /* FlexCAN */
+
+void cem_send_bus(can_bus_id bus, unsigned long id, byte *d)
+{
+  CAN_message_t msg;
+
+  if (cem_print)
+      printf("send: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+             id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+  msg.id = id;
+  msg.len = 8;
+  msg.flags.extended = 1;
+  memcpy(msg.buf, d, 8);
+
+  switch (bus) {
+    case CAN_HS:
+      can_hs.write (msg);
+      break;
+
+#if defined(HAS_CAN_LS)
+    case CAN_LS:
+      can_ls.write (msg);
+      break;
+#endif
+
+    default:
+      break;
+  }
+
+}
+#endif /* USE_MCP2515 */
 
 void cem_send(unsigned long id, byte *d)
 {
@@ -90,26 +181,50 @@ void cem_send(unsigned long id, byte *d)
 
 bool cem_receive(bool wait, unsigned long *id, byte *data)
 {
-  byte d[8] = { 0 };
-  byte len;
+  byte *p_data;
   int ret;
   unsigned long can_id = 0;
 
+#if defined(USE_MCP2515)
+  byte d[8] = { 0 };
+
   do {
+    byte len;
+
     ret = (CAN_HS.checkReceive() == CAN_MSGAVAIL);
     if (ret) {
       CAN_HS.readMsgBuf(&len, d);
       can_id = CAN_HS.getCanId();
+      p_data = d;
     }
   } while (!ret && wait);
 
+#else /* FlexCAN */
+
+  CAN_message_t msg;
+
+  do {
+    ret = can_hs.read (msg);
+    if (ret) {
+      can_id = msg.id;
+      p_data = msg.buf;
+    }
+  } while (!ret && wait);
+
+#endif /* USE_MCP2515 */
+
+  if (!ret)
+    return ret;
+
   if (id)
     *id = can_id;
-  if (data)
-    memcpy(data, d, 8);
 
-  if (ret && cem_print)
-    printf("recv: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n", can_id, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+  if (data)
+    memcpy(data, p_data, 8);
+
+  if (cem_print)
+    printf("recv: ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+           can_id, p_data[0], p_data[1], p_data[2], p_data[3], p_data[4], p_data[5], p_data[6], p_data[7]);
 
   return ret;
 }
@@ -163,10 +278,8 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
   byte b[8] = { 0x50, 0xbe };
   byte *p = b + 2;
   long start, end;
-  byte len;
   unsigned long id;
   long cur, max = 0;
-  bool prev_pin = true;
 
   if (shuffle) {
     p[shuffle_order[0]] = pin[0];
@@ -181,17 +294,20 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
   cem_send(0xffffe, b);
   can_intr = false;
   long mt = 0;
+
   for (cur = 0, start = TSC; !can_intr && mt < CEM_REPLY_DELAY_US * clockCyclesPerMicrosecond();) {
     if (digitalRead(CAN_L_PIN)) {
       cur++;
       continue;
     }
     end = TSC;
+
     if (cur > max) {
       max = cur;
       cur = 0;
       mt = end - start;
     }
+
     while (!(digitalRead(CAN_L_PIN)))
       start = TSC;
   }
@@ -205,13 +321,12 @@ void cem_read_part_number()
 {
   unsigned long id;
   byte d[8];
-  int ret;
   byte data[8] = { 0x50, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
   printf("reading part number\n");
   cem_send(0xFFFFE, data);
 
-  ret = cem_receive(true, &id, d);
+  (void) cem_receive(true, &id, d);
 }
 
 void cem_programming_mode_on()
@@ -328,6 +443,11 @@ void crack_pin_pos(byte *pin, int pos)
   average_response = s[0].lat;
 
   printf("pin[%d] candidate: %02x lat %d\n", pos, s[0].b, s[0].lat);
+  if ((s[0].lat - s[1].lat) < clockCyclesPerMicrosecond()) {
+    printf ("Warning: Selected candidate is very close to the next candidate!\n");
+    printf ("         Selection may be incorrect.\n");
+  }
+
   pin[pos] = s[0].b;
   pin[pos + 1] = 0;
 }
@@ -369,19 +489,17 @@ void cem_crack_pin(int max_bytes)
   printf("done\n");
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(3000);
-  pinMode(CAN_L_PIN, INPUT_PULLUP);
-  pinMode(CAN_INTR_PIN, INPUT);
-  printf("F_CPU %d\n", F_CPU);
-  printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
-  printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
+#if defined(USE_MCP2515)
+
+void mcp2515_init (void) {
   printf("CAN_HS init\n");
   while (MCP2515_OK != CAN_HS.begin(CAN_HS_BAUD, MCP2515_CLOCK)) {
     delay(1000);
   }
+
+#if defined(ENABLE_INTERRUPTS)
   attachInterrupt(digitalPinToInterrupt(CAN_INTR_PIN), cem_intr, FALLING);
+#endif
 
 #ifdef HAS_CAN_LS
   printf("CAN_LS init\n");
@@ -389,6 +507,54 @@ void setup() {
     delay(1000);
   }
 #endif
+}
+
+#else /* FlexCAN */
+
+void flexcan_init (void) {
+
+    /* high-speed CAN bus initialization */
+
+    can_hs.begin();
+    can_hs.setBaudRate(CAN_HS_SPEED);
+    can_hs.enableFIFO();
+    can_hs.mailboxStatus();
+
+    /* low-speed CAN bus initialization */
+
+#if defined(HAS_CAN_LS)
+    can_ls.begin();
+    can_ls.setBaudRate(CAN_LS_SPEED);
+    can_ls.enableFIFO();
+    can_ls.mailboxStatus();
+#endif
+
+    /* enable the time stamp counter */
+
+    ARM_DEMCR |= ARM_DEMCR_TRCENA;
+    ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
+}
+
+#endif /* USE_MCP2515 */
+
+void setup() {
+  Serial.begin(115200);
+  delay(3000);
+  pinMode(CAN_L_PIN, INPUT_PULLUP);
+
+#if defined(ENABLE_INTERRUPTS)
+  pinMode(CAN_INTR_PIN, INPUT);
+#endif
+
+  printf("F_CPU %d\n", F_CPU);
+  printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
+  printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
+
+#if defined(USE_MCP2515)
+  mcp2515_init ();
+#else /* FlexCAN */
+  flexcan_init ();
+#endif /* USE_MCP2515 */
 
   printf("done\n");
 
