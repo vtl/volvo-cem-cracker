@@ -15,31 +15,56 @@
  * 
  * MCP2515 Library: https://github.com/Seeed-Studio/CAN_BUS_Shield.git
  *
+ *
  * Hardware selection:
  *
- * Defining USE_MCP2515 will configure the use of external MCP2515 CAN bus 
- * controllers as described in the schematic.  If USE_MCP2515 is not defined,
- * the internal Teensy CAN0/CAN1 bus controllers are used.
- * 
+ * Several hardware variants are supported:
+ *
+ *  - Teensy 4.x with external MPC2515 CAN bus controllers
+ *  - Teensy 3.6 with internal CAN bus controller
+ *  - Teensy 4.x with internal CAN bus controller (work in progress)
+ *
+ * The Teensy 4.0 configuration with the external MPC2515 controller is
+ * described in the provided schematic.  Selecting MPC2515_HW as the
+ * hardware configuration will utilize this hardware.
+ *
+ * The Teensy 3.6 configuration uses the built-in CAN0 and CAN1 controllers.
+ * CAN0 is used for the high-speed bus and CAN1 is used for the low-speed bus.
+ * To enable the sampling of the high-speed CAN bus, the CAN0 receive pin
+ * (pin 6) must be connected to digital input 2 (pin 4).
+ * Selecting TEENSY_36_HW as the hardware configuration will utilize this
+ * configuration.
+ *
+ * The Teensy 4.x configuration uses the built-in CAN1 and CAN2 controllers.
+ * CAN1 is used for the high-speed bus and CAN2 is used for the low-speed bus.
+ * To enable the sampling of the high-speed CAN bus, the CAN1 receive pin
+ * (CRX1, pin 37 on 4.1, pin 25 on 4.0) must be connected to digital input 2
+ * (pin 4).  Selecting TEENSY_4X_HW as the hardware configuration will utilize
+ * this configuration.
+ *
  * If the internal controllers are selected, the FlexCAN_T4 library must be
  * available in your library (should already be present as part of Teensyduino).
- * CAN0 is used for the high-speed bus and CAN1 is used for the low-speed bus.
- * External transcievers must be used to connect the Teensy to the CAN bus.
  *
- * To enable the sampling of the high-speed CAN bus, the CAN0 receive pin
- * (pin 6 on Teensy 3.6) must be connected to digital input 2 (pin 4 on
- * Teensy 3.6).
+ * External transcievers must be used to connect the Teensy to the CAN bus.
  *
  */
 
-#define USE_MCP2515
+/* hardware selection */
 
-#if defined(USE_MCP2515)
+#define MCP2515_HW	1       /* Teensy with external CAN controllers */
+#define TEENSY_36_HW	2       /* Teensy 3.6 with internal CAN controller */
+#define TEENSY_4X_HW	3       /* Teensy 4.x with internal CAN controller */
+
+#define HW_SELECTION TEENSY_36_HW
+
+#if (HW_SELECTION == MCP2515_HW)
  #include <SPI.h>
  #include <mcp_can.h>
  #include <mcp_can_dfs.h>
-#else
+#elif ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
  #include <FlexCAN_T4.h>
+#else
+ #error Hardware platform must be selected.
 #endif
 
 /* tunables */
@@ -56,6 +81,7 @@
 #if defined(PLATFORM_P2)
 #define BUCKETS_PER_US 1                           /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
 #define CEM_REPLY_DELAY_US (80*BUCKETS_PER_US)     /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+#define CEM_REPLY_TIMEOUT_MS 2                     /* maximum time in ms for CEM to reply for PIN unlock command (approx) */
 
 int shuffle_order[] = { 3, 1, 5, 0, 2, 4 };
 
@@ -64,6 +90,7 @@ int shuffle_order[] = { 3, 1, 5, 0, 2, 4 };
 #define AVERAGE_DELTA_MIN   (16*BUCKETS_PER_US)     /* Buckets to look at before the average */
 #define AVERAGE_DELTA_MAX   (32*BUCKETS_PER_US)     /* Buckets to look at after the average  */
 #define CEM_REPLY_DELAY_US  (200*BUCKETS_PER_US)    /* minimum time in us for CEM to reply for PIN unlock command (approx) */
+#define CEM_REPLY_TIMEOUT_MS 2                      /* maximum time in ms for CEM to reply for PIN unlock command (approx) */
 
 /* P1 processes the key in order
    The order in flash is still shuffled though
@@ -76,7 +103,7 @@ int shuffle_order[] = { 0, 1, 2, 3, 4, 5 };
 #error Platform required // Must pick PLATFORM_P1 or PLATFORM_P2 above
 #endif
 
-#if defined(USE_MCP2515)
+#if (HW_SELECTION == MCP2515_HW)
 
 #define CAN_HS_CS_PIN 2  /* MCP2515 chip select pin CAN-HS */
 #define CAN_LS_CS_PIN 3  /* MCP2515 chip select pin CAN-LS */
@@ -88,9 +115,9 @@ int shuffle_order[] = { 0, 1, 2, 3, 4, 5 };
 MCP_CAN CAN_HS(CAN_HS_CS_PIN);
 MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 
-#define ENABLE_INTERRUPTS
+#elif ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
 
-#else /* FlexCAN */
+/* use FlexCAN driver */
 
 #define CAN_L_PIN    2   /* CAN Rx pin connected to digital pin 2 */
 
@@ -100,21 +127,24 @@ MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 #define CAN_HS_SPEED CAN_500KBPS
 #define CAN_LS_SPEED CAN_125KBPS
 
-/* disable interrupt support */
-
-#undef ENABLE_INTERRUPTS
-
 /* CAN 0/1 controller objects */
 
+#if (HW_SELECTION == TEENSY_36_HW)
 FlexCAN_T4<CAN0, RX_SIZE_256, TX_SIZE_16> can_hs;
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can_ls;
+#endif
+
+#if (HW_SELECTION == TEENSY_4X_HW)
+FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can_hs;
+FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can_ls;
+#endif
 
 typedef enum {
   CAN_HS,       /* high-speed bus */
   CAN_LS        /* low-speed bus */
 } can_bus_id;
 
-#endif /* USE_MCP2515 */
+#endif /* HW_SELECTION */
 
 #define TSC ARM_DWT_CYCCNT
 #define CEM_REPLY_US (200 * BUCKETS_PER_US)
@@ -128,7 +158,7 @@ typedef enum {
 bool cem_print = true;
 long average_response = 0;
 
-#if defined(USE_MCP2515)
+#if (HW_SELECTION == MCP2515_HW)
 void cem_send_bus(MCP_CAN &bus, unsigned long id, byte *d)
 {
 
@@ -142,7 +172,7 @@ void cem_send_bus(MCP_CAN &bus, unsigned long id, byte *d)
   bus.sendMsgBuf(id, 1, 8, d);
 }
 
-#else /* FlexCAN */
+#elif ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
 
 void cem_send_bus(can_bus_id bus, unsigned long id, byte *d)
 {
@@ -172,20 +202,39 @@ void cem_send_bus(can_bus_id bus, unsigned long id, byte *d)
   }
 
 }
-#endif /* USE_MCP2515 */
+#endif /* HW_SELECTION */
 
 void cem_send(unsigned long id, byte *d)
 {
   cem_send_bus(CAN_HS, id, d);
 }
 
+#if ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
+
+CAN_message_t hs_msg;
+bool hs_msg_available = false;
+
+/*
+ * can_hs_event - FlexCAN_T4's message receive call-back
+ */
+
+void can_hs_event (const CAN_message_t &msg) {
+
+  /* just save the message in a global and flag it as available */
+
+  hs_msg = msg;
+  hs_msg_available = true;
+}
+
+#endif /* HW_SELECTION */
+
 bool cem_receive(bool wait, unsigned long *id, byte *data)
 {
   byte *p_data;
-  int ret;
+  int ret = 0;
   unsigned long can_id = 0;
 
-#if defined(USE_MCP2515)
+#if (HW_SELECTION == MCP2515_HW)
   byte d[8] = { 0 };
 
   do {
@@ -199,19 +248,25 @@ bool cem_receive(bool wait, unsigned long *id, byte *data)
     }
   } while (!ret && wait);
 
-#else /* FlexCAN */
-
-  CAN_message_t msg;
+#elif ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
 
   do {
-    ret = can_hs.read (msg);
-    if (ret) {
-      can_id = msg.id;
-      p_data = msg.buf;
+
+    /* call FlexCAN_T4's event handler to process queued messages */
+
+    can_hs.events();
+
+    /* check if a message was available and process it */
+
+    if (hs_msg_available == true) {
+      hs_msg_available = false;
+      can_id = hs_msg.id;
+      p_data = hs_msg.buf;
+      ret = 1;
     }
   } while (!ret && wait);
 
-#endif /* USE_MCP2515 */
+#endif /* HW_SELECTION */
 
   if (!ret)
     return ret;
@@ -277,9 +332,10 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
 {
   byte b[8] = { 0x50, 0xbe };
   byte *p = b + 2;
-  long start, end;
+  unsigned long start, end, limit;
   unsigned long id;
   long cur, max = 0;
+  bool reply_wait = true;
 
   if (shuffle) {
     p[shuffle_order[0]] = pin[0];
@@ -293,9 +349,16 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
   }
   cem_send(0xffffe, b);
   can_intr = false;
-  long mt = 0;
+  unsigned long mt = 0;
 
-  for (cur = 0, start = TSC; !can_intr && mt < CEM_REPLY_DELAY_US * clockCyclesPerMicrosecond();) {
+  /* maximum time to wait for a reply */
+
+  limit = millis() + CEM_REPLY_TIMEOUT_MS;
+
+  for (cur = 0, start = TSC;
+      !can_intr && 
+      (millis() < limit) &&
+      (mt < CEM_REPLY_DELAY_US * clockCyclesPerMicrosecond());) {
     if (digitalRead(CAN_L_PIN)) {
       cur++;
       continue;
@@ -308,10 +371,30 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
       mt = end - start;
     }
 
-    while (!(digitalRead(CAN_L_PIN)))
+    while (!(digitalRead(CAN_L_PIN))) {
+      if (millis() >= limit) {
+        break;
+      }
       start = TSC;
+    }
   }
-  cem_receive(true, &id, b);
+
+  /* check for a timeout condition */
+
+  if (millis() >= limit) {
+    printf ("Timeout waiting for CEM reply!\n");
+
+    /* on a timeout, try and see if there is anything in the CAN Rx queue */
+
+    reply_wait = false;
+  }
+
+  /* default reply is set to indicate a failure */
+
+  b[2] = 0xff;
+
+  cem_receive(reply_wait, &id, b);
+
   *lat = mt;
 
   return b[2] == 0x00;
@@ -360,7 +443,7 @@ void cem_reset()
 
 struct seq {
   byte b;
-  int lat;
+  unsigned int lat;
 } s[100] = { 0 };
 
 int seq_max(const void *a, const void *b)
@@ -489,7 +572,7 @@ void cem_crack_pin(int max_bytes)
   printf("done\n");
 }
 
-#if defined(USE_MCP2515)
+#if (HW_SELECTION == MCP2515_HW)
 
 void mcp2515_init (void) {
   printf("CAN_HS init\n");
@@ -497,9 +580,8 @@ void mcp2515_init (void) {
     delay(1000);
   }
 
-#if defined(ENABLE_INTERRUPTS)
+  pinMode(CAN_INTR_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(CAN_INTR_PIN), cem_intr, FALLING);
-#endif
 
 #ifdef HAS_CAN_LS
   printf("CAN_LS init\n");
@@ -509,7 +591,7 @@ void mcp2515_init (void) {
 #endif
 }
 
-#else /* FlexCAN */
+#elif ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
 
 void flexcan_init (void) {
 
@@ -518,6 +600,9 @@ void flexcan_init (void) {
     can_hs.begin();
     can_hs.setBaudRate(CAN_HS_SPEED);
     can_hs.enableFIFO();
+    can_hs.enableFIFOInterrupt();
+    can_hs.setFIFOFilter(ACCEPT_ALL);
+    can_hs.onReceive(can_hs_event);
     can_hs.mailboxStatus();
 
     /* low-speed CAN bus initialization */
@@ -535,26 +620,30 @@ void flexcan_init (void) {
     ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
 }
 
-#endif /* USE_MCP2515 */
+/*
+ * ext_output1 - called by FlexCAN_T4's receive interrupt handler
+ */
+
+void ext_output1 (const CAN_message_t &msg) {
+  cem_intr ();
+}
+
+#endif /* HW_SELECTION */
 
 void setup() {
   Serial.begin(115200);
   delay(3000);
   pinMode(CAN_L_PIN, INPUT_PULLUP);
 
-#if defined(ENABLE_INTERRUPTS)
-  pinMode(CAN_INTR_PIN, INPUT);
-#endif
-
   printf("F_CPU %d\n", F_CPU);
   printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
   printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
 
-#if defined(USE_MCP2515)
+#if (HW_SELECTION == MCP2515_HW)
   mcp2515_init ();
-#else /* FlexCAN */
+#elif ((HW_SELECTION == TEENSY_36_HW) || (HW_SELECTION == TEENSY_4X_HW))
   flexcan_init ();
-#endif /* USE_MCP2515 */
+#endif /* HW_SELECTION */
 
   printf("done\n");
 
