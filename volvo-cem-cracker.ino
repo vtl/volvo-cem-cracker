@@ -161,6 +161,8 @@ typedef enum {
 bool cem_print = true;
 long average_response = 0;
 
+extern "C" uint32_t set_arm_clock (uint32_t freq);
+
 #if (HW_SELECTION == MCP2515_HW)
 void cem_send_bus(MCP_CAN &bus, unsigned long id, byte *d)
 {
@@ -670,7 +672,10 @@ void flexcan_init (void) {
     can_hs.enableFIFOInterrupt();
     can_hs.setFIFOFilter(ACCEPT_ALL);
     can_hs.onReceive(can_hs_event);
+
+#if defined(SHOW_CAN_STATUS)
     can_hs.mailboxStatus();
+#endif
 
     /* low-speed CAN bus initialization */
 
@@ -678,7 +683,10 @@ void flexcan_init (void) {
     can_ls.begin();
     can_ls.setBaudRate(CAN_LS_SPEED);
     can_ls.enableFIFO();
+
+#if defined(SHOW_CAN_STATUS)
     can_ls.mailboxStatus();
+#endif
 #endif
 
     /* enable the time stamp counter */
@@ -697,14 +705,35 @@ void ext_output1 (const CAN_message_t &msg) {
 
 #endif /* HW_SELECTION */
 
+
 void setup() {
   Serial.begin(115200);
   delay(3000);
   pinMode(CAN_L_PIN, INPUT_PULLUP);
 
-  printf("F_CPU %d\n", F_CPU);
-  printf("CEM_REPLY_DELAY_US %d\n", CEM_REPLY_DELAY_US);
-  printf("clockCyclesPerMicrosecond %d\n", clockCyclesPerMicrosecond());
+#if (HW_SELECTION == TEENSY_4X_HW)
+
+  /* lowering the Teensy 4.x clock rate provides more consistent results */
+
+  set_arm_clock (180000000);
+#endif
+
+  printf("CPU Maximum Frequency:   %d\n", F_CPU);
+#if (HW_SELECTION == TEENSY_4X_HW)
+  printf("CPU Frequency:           %d\n", F_CPU_ACTUAL);
+#endif
+  printf("Execution Rate:          %d cycles/us\n", clockCyclesPerMicrosecond());
+  printf("Minimum CEM Reply Time:  %dus\n", CEM_REPLY_DELAY_US);
+#if defined(PLATFORM_P1)
+  printf("Platform:                P1\n");
+#elif defined (PLATFORM_P2)
+  printf("Platform:                P2\n");
+#else
+  printf("Platform:                unknown\n");
+#endif
+  printf("PIN bytes to measure:    %d\n", CALC_BYTES);
+  printf("Number of samples:       %d\n", SAMPLES);
+  printf("Number of loops:         %d\n\n", NUM_LOOPS);
 
 #if (HW_SELECTION == MCP2515_HW)
   mcp2515_init ();
@@ -712,7 +741,7 @@ void setup() {
   flexcan_init ();
 #endif /* HW_SELECTION */
 
-  printf("done\n");
+  printf("Initialization done.\n\n");
 
   while (cem_receive(false, NULL, NULL));
   cem_programming_mode_on();
