@@ -22,7 +22,7 @@
  *        CPU SPEED: 600MHz (default)
  *        OPTIMIZE: Fastest (default)
  *
- * MCP2515 Library: https://github.com/Seeed-Studio/CAN_BUS_Shield.git
+ * MCP2515 Library: https://github.com/vtl/CAN_BUS_Shield.git
  *
  *
  * Hardware selection:
