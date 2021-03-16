@@ -72,7 +72,7 @@
 #define MCP2515_HW      1   /* Teensy with external CAN controllers */
 #define TEENSY_CAN_HW   2   /* Teensy with internal CAN controller */
 
-#define HW_SELECTION MCP2515_HW
+#define HW_SELECTION TEENSY_CAN_HW
 
 /* tunable parameters */
 
