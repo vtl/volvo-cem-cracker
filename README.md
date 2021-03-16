@@ -10,11 +10,15 @@ Supported platforms:
   * 2008 - 2013 C30
   * 2006 - 2013 C70
 * P2:
-  * 1999 - 2006 S80
-  * 2001 - 2007 V70
-  * 2001 - 2007 XC70
-  * 2001 - 2009 S60
+  * 2005 - 2006 S80
+  * 2005 - 2007 V70
+  * 2005 - 2007 XC70
+  * 2005 - 2009 S60
   * 2003 - 2014 XC90
+
+Earlier P2 1999-2004 can be supported as well, CEM donation is welcome.
+
+Find us at Matthew's Volvo Site for support: https://www.matthewsvolvosite.com/forums/viewtopic.php?f=10&t=85611
 
 Big thanks to an unidentified hacker from western Germany for hints!
 
