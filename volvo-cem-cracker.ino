@@ -196,17 +196,12 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
     case CAN_HS:
       can_hs.write (msg);
       break;
-
-#if defined(HAS_CAN_LS)
     case CAN_LS:
       can_ls.write (msg);
       break;
-#endif
-
     default:
       break;
   }
-
 }
 
 CAN_message_t can_hs_event_msg;
@@ -223,26 +218,28 @@ bool can_ls_event_msg_available = false;
  * Returns: true if a message was available, false otherwise
  */
 
-bool canMsgReceive (uint32_t *id, uint8_t *data, bool wait, bool verbose)
+bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bool verbose)
 {
   uint8_t *pData;
   uint32_t canId = 0;
   bool     ret = false;
+  bool &msg_avail = (bus == CAN_HS ? can_hs_event_msg_available : can_ls_event_msg_available);
+  CAN_message_t &msg = (bus == CAN_HS ? can_hs_event_msg : can_ls_event_msg);
 
   do {
     /* call FlexCAN_T4's event handler to process queued messages */
 
-    can_hs.events ();
+    bus == CAN_HS ? can_hs.events() : can_ls.events();
 
     /* check if a message was available and process it */
 
-    if (can_hs_event_msg_available == true) {
+    if (msg_avail) {
 
       /* process the global buffer set by can_hs.events */
 
-      can_hs_event_msg_available = false;
-      canId = can_hs_event_msg.id;
-      pData = can_hs_event_msg.buf;
+      msg_avail = false;
+      canId = msg.id;
+      pData = msg.buf;
       ret = true;
     }
   } while ((ret == false) && (wait == true));
@@ -431,7 +428,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* see if anything came back from the CEM */
 
-  (void) canMsgReceive (&id, reply, replyWait, false);
+  canMsgReceive(CAN_HS, &id, reply, replyWait, false);
 
   /* return the maximum time between transmissions that we saw on the CAN bus */
 
@@ -476,7 +473,7 @@ void ecuPrintPartNumber (uint8_t ecuId)
   /* get the reply */
 
   memset (data, 0, sizeof(data));
-  (void) canMsgReceive (&id, data, true, verbose);
+  canMsgReceive(CAN_HS, &id, data, true, verbose);
 
   printf ("Part Number: %02u%02u%02u%02u%02u%02u\n",
           bcdToBin (data[2]), bcdToBin (data[3]),
@@ -863,7 +860,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
 
     memset (data, 0, sizeof(data));
 
-    (void) canMsgReceive (&can_id, data, true, false);
+    canMsgReceive(CAN_HS, &can_id, data, true, false);
 
     /* verify the response came from the CEM and is a successful reply to our request */
 
@@ -997,8 +994,7 @@ void loop (void)
 
   /* drain any pending messages */
 
-  while (canMsgReceive (NULL, NULL, false, false) == true)
-    ;
+  while(canMsgReceive(CAN_HS, NULL, NULL, false, false));
 
   /* put all ECUs into programming mode */
 
@@ -1006,8 +1002,7 @@ void loop (void)
 
   /* drain any pending messages */
 
-  while (canMsgReceive (NULL, NULL, false, false) == true)
-    ;
+  while(canMsgReceive (CAN_HS, NULL, NULL, false, false));
 
   /* print the CEM's part number */
 
