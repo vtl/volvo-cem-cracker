@@ -10,7 +10,6 @@
  *        Teensy 4.0 with external CAN controllers
  *        SAMPLES = 5 Seems to work reliably
  *        CALC_BYTES = 4 does seem to work fine, 3 might be more reliable
- *        BUCKETS_PER_US 4
  *        CPU SPEED: 600MHz (default)
  *        OPTIMIZE: Fastest (default)
  * 
@@ -114,16 +113,12 @@
 
 /* P2 platform settings: S80, V70, XC70, S60, XC90 */
 
-#define BUCKETS_PER_US        1                    /* how many buckets per microsecond do we store (1 means 1us resolution */
-
-//const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
-const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
+const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
+//const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
 
 #elif defined(PLATFORM_P1)
 
 /* P1 platform settings: S40, V50, C30, C70 */
-
-#define BUCKETS_PER_US        4                    /* how many buckets per microsecond do we store (4 means 1/4us or 0.25us resolution */
 
 /* P1 processes the key in order
    The order in flash is still shuffled though
@@ -141,8 +136,8 @@ uint32_t cem_reply_min;
 uint32_t cem_reply_avg;
 uint32_t cem_reply_max;
 
-#define AVERAGE_DELTA_MIN     (-8 * BUCKETS_PER_US)  /* buckets to look at before the rolling average */
-#define AVERAGE_DELTA_MAX     (12 * BUCKETS_PER_US)  /* buckets to look at after the rolling average  */
+#define AVERAGE_DELTA_MIN     -8  /* buckets to look at before the rolling average */
+#define AVERAGE_DELTA_MAX     12  /* buckets to look at after the rolling average  */
 
 /* hardware defintions */
 
@@ -164,7 +159,7 @@ MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 
 #define CAN_L_PIN    2          /* CAN Rx pin connected to digital pin 2 */
 
-#define CAN_500KBPS 250000      /* 500 Kbit speed */
+#define CAN_500KBPS 500000      /* 500 Kbit speed */
 #define CAN_125KBPS 125000      /* 125 Kbit speed */
 
 #define CAN_HS_SPEED CAN_500KBPS
@@ -491,7 +486,7 @@ uint32_t profileCemResponse (void)
 
     /* keep a running total of the average latency */
 
-    cem_reply_avg += latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
+    cem_reply_avg += latency / clockCyclesPerMicrosecond();
   }
 
   /* end time in milliseconds */
@@ -738,7 +733,7 @@ int seq_max (const void *a, const void *b)
 
 void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 {
-  int len = sizeof(uint32_t) * BUCKETS_PER_US * (cem_reply_max - cem_reply_min);
+  int len = sizeof(uint32_t) * (cem_reply_max - cem_reply_min);
   uint32_t *histogram = (uint32_t *)malloc(len);
   uint32_t latency;
   uint32_t prod;
@@ -811,7 +806,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         /* calculate the index into the historgram */
 
-        uint32_t idx = latency / (clockCyclesPerMicrosecond () / BUCKETS_PER_US);
+        uint32_t idx = latency / clockCyclesPerMicrosecond();
 
         if (idx < cem_reply_min)
           idx = cem_reply_min;
