@@ -66,47 +66,21 @@
  *
  */
 
-/* hardware selection */
-
-#define MCP2515_HW      1   /* Teensy with external CAN controllers */
-#define TEENSY_CAN_HW   2   /* Teensy with internal CAN controller */
-
-#define HW_SELECTION TEENSY_CAN_HW
-
 /* tunable parameters */
 
 #undef  PLATFORM_P1        /* P1 Platform (S40/V50/C30/C70) MC9S12xxXXX based */
 #define PLATFORM_P2        /* P2 Platform (S60/S80/V70/XC70/XC90) M32C based */
 
-#define HAS_CAN_LS          /* in the vehicle both low-speed and high-speed CAN-buses need to go into programming mode */
 #define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 
 /* end of tunable parameters */
 
 #include <stdio.h>
+#include <FlexCAN_T4.h>
 
-#if (HW_SELECTION == MCP2515_HW)
- #include <SPI.h>
- #include <mcp_can.h>
- #include <mcp_can_dfs.h>
-#elif (HW_SELECTION == TEENSY_CAN_HW)
- #include <FlexCAN_T4.h>
-
- #if defined(__IMXRT1062__)
-  #define TEENSY_MODEL_4X
- #elif defined(__MK66FX1M0__)
-  #define TEENSY_MODEL_36
- #elif defined(__MK64FX512__)
-  #define TEENSY_MODEL_35
- #elif defined(__MK20DX256__)
-  #define TEENSY_MODEL_32
- #else
-  #error Unsupported Teensy model.
- #endif
-
-#else
- #error Hardware platform must be selected.
+#if !defined(__IMXRT1062__)
+#error Unsupported Teensy model, need 4.0
 #endif
 
 #if defined(PLATFORM_P2)
@@ -139,24 +113,6 @@ uint32_t cem_reply_max;
 #define AVERAGE_DELTA_MIN     -8  /* buckets to look at before the rolling average */
 #define AVERAGE_DELTA_MAX     12  /* buckets to look at after the rolling average  */
 
-/* hardware defintions */
-
-#if (HW_SELECTION == MCP2515_HW)
-
-#define CAN_HS_CS_PIN 2         /* MCP2515 chip select pin CAN-HS */
-#define CAN_LS_CS_PIN 3         /* MCP2515 chip select pin CAN-LS */
-#define CAN_INTR_PIN  4         /* MCP2515 interrupt pin CAN-HS */
-#define CAN_L_PIN    10         /* CAN-HS- wire, directly connected (CAN-HS, Low)*/
-
-#define MCP2515_CLOCK MCP_8MHz  /* Different boards may have a different crystal, Seeed Studio is MCP_16MHZ */
-
-MCP_CAN CAN_HS(CAN_HS_CS_PIN);
-MCP_CAN CAN_LS(CAN_LS_CS_PIN);
-
-#elif (HW_SELECTION == TEENSY_CAN_HW)
-
-/* use FlexCAN driver */
-
 #define CAN_L_PIN    2          /* CAN Rx pin connected to digital pin 2 */
 
 #define CAN_500KBPS 500000      /* 500 Kbit speed */
@@ -165,51 +121,19 @@ MCP_CAN CAN_LS(CAN_LS_CS_PIN);
 #define CAN_HS_SPEED CAN_500KBPS
 #define CAN_LS_SPEED CAN_125KBPS
 
-/* CAN high-speed and low-speed controller objects */
-
-#if defined(TEENSY_MODEL_4X)
-
-/* Teensy 4.x */
-
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can_hs;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can_ls;
-
-#elif defined(TEENSY_MODEL_36)
-
-/* Teensy 3.6 */
-
-FlexCAN_T4<CAN0, RX_SIZE_256, TX_SIZE_16> can_hs;
-FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can_ls;
-
-#elif defined(TEENSY_MODEL_35) || defined(TEENSY_MODEL_32)
-
-/* Teensy 3.1, 3.2, 3.5 */
-
-FlexCAN_T4<CAN0, RX_SIZE_256, TX_SIZE_16> can_hs;
-
-/* only one CAN bus on these boards */
-
-#undef  HAS_CAN_LS
-
-#endif /* TEENSY_MODEL */
 
 typedef enum {
   CAN_HS,       /* high-speed bus */
   CAN_LS        /* low-speed bus */
 } can_bus_id_t;
 
-#endif /* HW_SELECTION */
-
 /* use the ARM cycle counter as the time-stamp */
 
 #define TSC ARM_DWT_CYCCNT
 
 #define printf Serial.printf
-
-/* CAN bus speeds to use */
-
-#define CAN_HS_BAUD CAN_500KBPS
-#define CAN_LS_BAUD CAN_125KBPS
 
 #define CAN_MSG_SIZE    8       /* messages are always 8 bytes */
 
@@ -242,29 +166,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
  *
  * Returns: N/A
  */
-
-#if (HW_SELECTION == MCP2515_HW)
-void canMsgSend (MCP_CAN &bus, uint32_t id, uint8_t *data, bool verbose)
-{
-
-#ifndef HAS_CAN_LS
-
-  /* return if there's no low-speed CAN bus available */
-
-  if (&bus == &CAN_LS) {
-    return;
-  }
-#endif
-
-  if (verbose == true) {
-    printf ("---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
-            id, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-  }
-
-  bus.sendMsgBuf (id, 1, 8, data);
-}
-
-#elif (HW_SELECTION == TEENSY_CAN_HW)
 
 /*******************************************************************************
  *
@@ -307,9 +208,6 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
   }
 
 }
-#endif /* HW_SELECTION */
-
-#if (HW_SELECTION == TEENSY_CAN_HW)
 
 /* storage for message received via event */
 
@@ -332,8 +230,6 @@ void canHsEvent (const CAN_message_t &msg)
   eventMsgAvailable = true;
 }
 
-#endif /* HW_SELECTION */
-
 /*******************************************************************************
  *
  * canMsgReceive - receive a CAN bus message
@@ -348,27 +244,6 @@ bool canMsgReceive (uint32_t *id, uint8_t *data, bool wait, bool verbose)
   uint8_t *pData;
   uint32_t canId = 0;
   bool     ret = false;
-
-#if (HW_SELECTION == MCP2515_HW)
-  uint8_t msg[CAN_MSG_SIZE] = { 0 };
-
-  do {
-    uint8_t len;
-
-    /* poll if a message is available */
-
-    ret = (CAN_HS.checkReceive () == CAN_MSGAVAIL);
-    if (ret == true) {
-
-      /* retrieve available message and return it */
-
-      CAN_HS.readMsgBuf (&len, msg);
-      canId = CAN_HS.getCanId ();
-      pData = msg;
-    }
-  } while ((ret == false) && (wait == true));
-
-#elif (HW_SELECTION == TEENSY_CAN_HW)
 
   do {
 
@@ -388,8 +263,6 @@ bool canMsgReceive (uint32_t *id, uint8_t *data, bool wait, bool verbose)
       ret = true;
     }
   } while ((ret == false) && (wait == true));
-
-#endif /* HW_SELECTION */
 
   /* no message, just return an error */
 
@@ -1040,37 +913,6 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   printf ("done\n");
 }
 
-#if (HW_SELECTION == MCP2515_HW)
-
-/*******************************************************************************
- *
- * mcp2515Init - initialize MCP2515 external CAN controllers
- *
- * Returns: N/A
- */
-
-void mcp2515Init (void)
-{
-  printf ("CAN_HS init\n");
-
-  while (MCP2515_OK != CAN_HS.begin (CAN_HS_BAUD, MCP2515_CLOCK)) {
-    delay (1000);
-  }
-
-  pinMode (CAN_INTR_PIN, INPUT);
-  pinMode (CAN_INTR_PIN, INPUT_PULLUP);
-  attachInterrupt (digitalPinToInterrupt (CAN_INTR_PIN), canInterruptHandler, FALLING);
-
-#ifdef HAS_CAN_LS
-  printf ("CAN_LS init\n");
-  while (MCP2515_OK != CAN_LS.begin (CAN_LS_BAUD, MCP_8MHz)) {
-    delay (1000);
-  }
-#endif
-}
-
-#elif (HW_SELECTION == TEENSY_CAN_HW)
-
 /*******************************************************************************
  *
  * flexCanInit - initialize Teensy internal CAN controllers
@@ -1096,8 +938,6 @@ void flexCanInit (void)
 #endif
 
   /* low-speed CAN bus initialization */
-
-#if defined(HAS_CAN_LS)
   can_ls.begin ();
   can_ls.setBaudRate (CAN_LS_SPEED);
   can_ls.enableFIFO();
@@ -1105,7 +945,6 @@ void flexCanInit (void)
 
 #if defined(SHOW_CAN_STATUS)
   can_ls.mailboxStatus ();
-#endif
 #endif
 
   /* enable the time stamp counter */
@@ -1124,28 +963,6 @@ void flexCanInit (void)
 void ext_output1 (const CAN_message_t &msg)
 {
   canInterruptHandler ();
-}
-
-#endif /* HW_SELECTION */
-
-/*******************************************************************************
- *
- * __assert__ - support function for assert() macro
- *
- * Returns: N/A
- */
-
-void __assert__ (const char *__func, const char *__file,
-                 int __lineno, const char *__sexp) {
-
-  /* print an informational message about the assertion */
-
-  printf ("Failed assertion '%s' in %s() line %d.",
-          __sexp, __func, __lineno);
-
-  /* halt execution */
-
-  while (1);
 }
 
 void k_line_keep_alive()
@@ -1176,17 +993,10 @@ void setup (void)
 
   pinMode (CAN_L_PIN, INPUT_PULLUP);
 
-#if defined(TEENSY_MODEL_4X) && defined(PLATFORM_P2)
-
-  /* lowering the Teensy 4.x clock rate provides more consistent results */
-
 //  set_arm_clock (180000000);
-#endif
 
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
-#if defined(TEENSY_MODEL_4X)
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
-#endif
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
 #if defined(PLATFORM_P1)
   printf ("Platform:                P1\n");
@@ -1198,12 +1008,7 @@ void setup (void)
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
 
-#if (HW_SELECTION == MCP2515_HW)
-  mcp2515Init ();
-#elif (HW_SELECTION == TEENSY_CAN_HW)
   flexCanInit ();
-#endif /* HW_SELECTION */
-
   printf ("Initialization done.\n\n");
 }
 
