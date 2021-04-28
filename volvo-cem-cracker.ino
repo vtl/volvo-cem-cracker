@@ -316,6 +316,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   /* maximum time to collect our samples */
 
   limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond();
+  can_hs_event_msg_available = false;
 
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
@@ -334,7 +335,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
    *  - a timeout occurs due to no bus activity
    */
 
-  can_hs_event_msg_available = false;
   start = TSC;
   while (!can_hs_event_msg_available && TSC < limit) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
