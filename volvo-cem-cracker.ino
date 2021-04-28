@@ -211,8 +211,10 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
 
 /* storage for message received via event */
 
-CAN_message_t eventMsg;
-bool eventMsgAvailable = false;
+CAN_message_t can_hs_event_msg;
+CAN_message_t can_ls_event_msg;
+bool can_hs_event_msg_available = false;
+bool can_ls_event_msg_available = false;
 
 /*******************************************************************************
  *
@@ -221,13 +223,22 @@ bool eventMsgAvailable = false;
  * Returns: N/A
  */
 
-void canHsEvent (const CAN_message_t &msg)
+void can_hs_event (const CAN_message_t &msg)
 {
 
   /* just save the message in a global and flag it as available */
 
-  eventMsg = msg;
-  eventMsgAvailable = true;
+  can_hs_event_msg = msg;
+  can_hs_event_msg_available = true;
+}
+
+void can_ls_event (const CAN_message_t &msg)
+{
+
+  /* just save the message in a global and flag it as available */
+
+  can_ls_event_msg = msg;
+  can_ls_event_msg_available = true;
 }
 
 /*******************************************************************************
@@ -253,13 +264,13 @@ bool canMsgReceive (uint32_t *id, uint8_t *data, bool wait, bool verbose)
 
     /* check if a message was available and process it */
 
-    if (eventMsgAvailable == true) {
+    if (can_hs_event_msg_available == true) {
 
       /* process the global buffer set by can_hs.events */
 
-      eventMsgAvailable = false;
-      canId = eventMsg.id;
-      pData = eventMsg.buf;
+      can_hs_event_msg_available = false;
+      canId = can_hs_event_msg.id;
+      pData = can_hs_event_msg.buf;
       ret = true;
     }
   } while ((ret == false) && (wait == true));
@@ -925,12 +936,12 @@ void flexCanInit (void)
 
   /* high-speed CAN bus initialization */
 
-  can_hs.begin ();
-  can_hs.setBaudRate (CAN_HS_SPEED);
+  can_hs.begin();
+  can_hs.setBaudRate(CAN_HS_SPEED);
   can_hs.enableFIFO();
-  can_hs.enableFIFOInterrupt ();
-  can_hs.setFIFOFilter (ACCEPT_ALL);
-  can_hs.onReceive (canHsEvent);
+  can_hs.enableFIFOInterrupt();
+  can_hs.setFIFOFilter(ACCEPT_ALL);
+  can_hs.onReceive(can_hs_event);
   printf ("CAN high-speed init done.\n");
 
 #if defined(SHOW_CAN_STATUS)
@@ -941,6 +952,9 @@ void flexCanInit (void)
   can_ls.begin ();
   can_ls.setBaudRate (CAN_LS_SPEED);
   can_ls.enableFIFO();
+  can_hs.enableFIFOInterrupt();
+  can_hs.setFIFOFilter(ACCEPT_ALL);
+  can_hs.onReceive(can_ls_event);
   printf ("CAN low-speed init done.\n");
 
 #if defined(SHOW_CAN_STATUS)
