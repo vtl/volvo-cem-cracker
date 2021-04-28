@@ -228,19 +228,12 @@ sequence_t sequence[100] = { 0 };
 
 volatile bool canInterruptReceived = false;
 
-/* assert macro for debugging */
-
-#define assert(e) ((e) ? (void)0 : \
-                         __assert__(__func__, __FILE__, __LINE__, #e))
-
 /* Teensy function to set the core's clock rate */
 
 extern "C" uint32_t set_arm_clock (uint32_t freq);
 
 /* forward declarations */
 
-void __assert__ (const char *__func, const char *__file,
-                 int __lineno, const char *__sexp);
 bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose);
 
 /*******************************************************************************
