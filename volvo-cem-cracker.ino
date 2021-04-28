@@ -209,37 +209,10 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
 
 }
 
-/* storage for message received via event */
-
 CAN_message_t can_hs_event_msg;
 CAN_message_t can_ls_event_msg;
 bool can_hs_event_msg_available = false;
 bool can_ls_event_msg_available = false;
-
-/*******************************************************************************
- *
- * canHsEvent - FlexCAN_T4's message receive call-back
- *
- * Returns: N/A
- */
-
-void can_hs_event (const CAN_message_t &msg)
-{
-
-  /* just save the message in a global and flag it as available */
-
-  can_hs_event_msg = msg;
-  can_hs_event_msg_available = true;
-}
-
-void can_ls_event (const CAN_message_t &msg)
-{
-
-  /* just save the message in a global and flag it as available */
-
-  can_ls_event_msg = msg;
-  can_ls_event_msg_available = true;
-}
 
 /*******************************************************************************
  *
@@ -257,7 +230,6 @@ bool canMsgReceive (uint32_t *id, uint8_t *data, bool wait, bool verbose)
   bool     ret = false;
 
   do {
-
     /* call FlexCAN_T4's event handler to process queued messages */
 
     can_hs.events ();
@@ -387,21 +359,6 @@ uint32_t profileCemResponse (void)
 
 /*******************************************************************************
  *
- * canInterruptHandler - CAN controller interrupt handler
- *
- * Returns: N/A
- */
-
-void canInterruptHandler (void)
-{
-
-  /* we're only interested if the interrupt was received */
-
-  canInterruptReceived = true;
-}
-
-/*******************************************************************************
- *
  * cemUnlock - attempt to unlock the CEM with the provided PIN
  *
  * Returns: true if the CEM was unlocked, false otherwise
@@ -433,10 +390,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
 
-  /* clear current interrupt status */
-
-  canInterruptReceived = false;
-
   /*
    * Sample the CAN bus and determine the longest time between bit transitions.
    *
@@ -451,8 +404,9 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
    *  - a timeout occurs due to no bus activity
    */
 
+  can_hs_event_msg_available = false;
   start = TSC;
-  while (!canInterruptReceived && TSC < limit) {
+  while (!can_hs_event_msg_available && TSC < limit) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
     if (digitalRead (CAN_L_PIN))
@@ -941,7 +895,6 @@ void flexCanInit (void)
   can_hs.enableFIFO();
   can_hs.enableFIFOInterrupt();
   can_hs.setFIFOFilter(ACCEPT_ALL);
-  can_hs.onReceive(can_hs_event);
   printf ("CAN high-speed init done.\n");
 
 #if defined(SHOW_CAN_STATUS)
@@ -952,9 +905,8 @@ void flexCanInit (void)
   can_ls.begin ();
   can_ls.setBaudRate (CAN_LS_SPEED);
   can_ls.enableFIFO();
-  can_hs.enableFIFOInterrupt();
-  can_hs.setFIFOFilter(ACCEPT_ALL);
-  can_hs.onReceive(can_ls_event);
+  can_ls.enableFIFOInterrupt();
+  can_ls.setFIFOFilter(ACCEPT_ALL);
   printf ("CAN low-speed init done.\n");
 
 #if defined(SHOW_CAN_STATUS)
@@ -974,9 +926,15 @@ void flexCanInit (void)
  * Returns: N/A
  */
 
-void ext_output1 (const CAN_message_t &msg)
+void ext_output1(const CAN_message_t &msg)
 {
-  canInterruptHandler ();
+  if (msg.bus == 1) {
+    can_hs_event_msg = msg;
+    can_hs_event_msg_available = true;
+  } else {
+    can_ls_event_msg = msg;
+    can_ls_event_msg_available = true;
+  }
 }
 
 void k_line_keep_alive()
