@@ -60,8 +60,8 @@ typedef enum {
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
-char  shuffle_orders[2][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 } };
-char *shuffle_order;
+unsigned char  shuffle_orders[2][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 } };
+unsigned char *shuffle_order;
 
 struct _cem_params {
   unsigned long part_number;
@@ -81,6 +81,48 @@ struct _cem_params {
   { 31254749, CAN_500KBPS, 0 },
   { 31254903, CAN_500KBPS, 0 },
   { 31296881, CAN_500KBPS, 0 },
+
+// P2 CEM-B (Brick shaped 1999-2004 with K-line)
+  { 8645716, CAN_250KBPS, 0 },
+  { 8645719, CAN_250KBPS, 0 },
+  { 8688434, CAN_250KBPS, 0 },
+  { 8688436, CAN_250KBPS, 0 },
+  { 8688513, CAN_250KBPS, 0 },
+  { 30657629, CAN_250KBPS, 0 },
+  { 9494336, CAN_250KBPS, 0 },
+  { 9494594, CAN_250KBPS, 0 },
+  { 8645171, CAN_250KBPS, 0 },
+  { 9452553, CAN_250KBPS, 0 },
+  { 8645205, CAN_250KBPS, 0 },
+  { 9452596, CAN_250KBPS, 0 },
+  { 8602436, CAN_250KBPS, 0 },
+  { 9469809, CAN_250KBPS, 0 },
+  { 8645200, CAN_250KBPS, 0 },
+
+// P2 CEM-L (L shaped and marked L 2005-2014)
+  { 30682981, CAN_500KBPS, 1 },
+  { 30682982, CAN_500KBPS, 1 },
+  { 30728542, CAN_500KBPS, 1 },
+  { 30765149, CAN_500KBPS, 1 },
+  { 30765646, CAN_500KBPS, 1 },
+  { 30786475, CAN_500KBPS, 1 },
+  { 30786889, CAN_500KBPS, 1 },
+  { 31282457, CAN_500KBPS, 1 },
+  { 31314468, CAN_500KBPS, 1 },
+
+// P2 CEM-H (L shaped and marked H 2005 - 2007)
+  { 30786476, CAN_500KBPS, 1 },
+  { 30728539, CAN_500KBPS, 1 },
+  { 30682982, CAN_500KBPS, 1 },
+  { 30728357, CAN_500KBPS, 1 },
+  { 30765148, CAN_500KBPS, 1 },
+  { 30765643, CAN_500KBPS, 1 },
+  { 30786476, CAN_500KBPS, 1 },
+  { 30786890, CAN_500KBPS, 1 },
+  { 30795115, CAN_500KBPS, 1 },
+  { 31282455, CAN_500KBPS, 1 },
+  { 31394157, CAN_500KBPS, 1 },
+  { 30786579, CAN_500KBPS, 1 },
 };
 
 /* measured latencies are stored for each of possible value of a single PIN digit */
@@ -380,9 +422,9 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   return reply[2] == 0x00;
 }
 
-unsigned long ecu_read_part_number(can_bus_id_t bus, int id)
+unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
 {
-  int _id;
+  uint32_t _id;
   uint8_t  data[CAN_MSG_SIZE] = { id, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   bool     verbose = true;
   unsigned long pn = 0;
@@ -838,13 +880,12 @@ void k_line_keep_alive()
 {
   unsigned char msg[] = { 0x84, 0x40, 0x13, 0xb2, 0xf0, 0x03, 0x7c };
 
-  printf("K-Line keep alive\n");
   Serial3.write(msg, sizeof(msg));
 }
 
 bool find_cem_params(unsigned long pn, struct _cem_params *p)
 {
-  int i;
+  unsigned int i;
 
   for (i = 0; i < sizeof(cem_params) / sizeof(struct _cem_params); i++) {
     if (cem_params[i].part_number == pn) {
