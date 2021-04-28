@@ -25,28 +25,6 @@
 #error Unsupported Teensy model, need 4.0
 #endif
 
-#if defined(PLATFORM_P2)
-
-/* P2 platform settings: S80, V70, XC70, S60, XC90 */
-
-//const uint32_t shuffleOrder[] = { 3, 1, 5, 0, 2, 4 };
-const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
-
-#elif defined(PLATFORM_P1)
-
-/* P1 platform settings: S40, V50, C30, C70 */
-
-/* P1 processes the key in order
-   The order in flash is still shuffled though
-   Order in flash: 5, 2, 1, 4, 0, 3
-*/
-
-const uint32_t shuffleOrder[] = { 0, 1, 2, 3, 4, 5 };
-
-#else
-#error Platform required        /* must pick PLATFORM_P1 or PLATFORM_P2 above */
-#endif
-
 //#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
 uint32_t cem_reply_min;
 uint32_t cem_reply_avg;
@@ -81,6 +59,29 @@ typedef enum {
 #define CEM_LS_ECU_ID      0x40
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
+
+char  shuffle_orders[2][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 } };
+char *shuffle_order;
+
+struct _cem_params {
+  unsigned long part_number;
+  int baud;
+  int shuffle;
+} cem_params[] = {
+// P1
+  { 8690719,  CAN_500KBPS, 0 },
+  { 8690720,  CAN_500KBPS, 0 },
+  { 8690721,  CAN_500KBPS, 0 },
+  { 8690722,  CAN_500KBPS, 0 },
+  { 30765471, CAN_500KBPS, 0 },
+  { 30728906, CAN_500KBPS, 0 },
+  { 30765015, CAN_500KBPS, 0 },
+  { 31254317, CAN_500KBPS, 0 },
+  { 31327215, CAN_500KBPS, 0 },
+  { 31254749, CAN_500KBPS, 0 },
+  { 31254903, CAN_500KBPS, 0 },
+  { 31296881, CAN_500KBPS, 0 },
+};
 
 /* measured latencies are stored for each of possible value of a single PIN digit */
 
@@ -309,12 +310,8 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* shuffle the PIN and set it in the request message */
 
-  pMsgPin[shuffleOrder[0]] = pin[0];
-  pMsgPin[shuffleOrder[1]] = pin[1];
-  pMsgPin[shuffleOrder[2]] = pin[2];
-  pMsgPin[shuffleOrder[3]] = pin[3];
-  pMsgPin[shuffleOrder[4]] = pin[4];
-  pMsgPin[shuffleOrder[5]] = pin[5];
+  for (int i = 0; i < PIN_LEN; i++)
+    pMsgPin[shuffle_order[i]] = pin[i];
 
   /* maximum time to collect our samples */
 
@@ -845,6 +842,21 @@ void k_line_keep_alive()
   Serial3.write(msg, sizeof(msg));
 }
 
+bool find_cem_params(unsigned long pn, struct _cem_params *p)
+{
+  int i;
+
+  for (i = 0; i < sizeof(cem_params) / sizeof(struct _cem_params); i++) {
+    if (cem_params[i].part_number == pn) {
+      *p = cem_params[i];
+      return true;
+    }
+  }
+  return false;
+}
+
+bool initialized = false;
+
 /*******************************************************************************
  *
  * setup - Arduino entry point for hardware configuration
@@ -880,9 +892,20 @@ void setup (void)
 
   can_ls_init(CAN_125KBPS);
   can_prog_mode(CAN_LS);
+
   long pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
-  can_hs_init(CAN_500KBPS);
+  struct _cem_params hs_params;
+  if (!find_cem_params(pn, &hs_params)) {
+    printf("Unkown CEM part number %lu. Don't know what to do.\n", pn);
+    return;
+  }
+
+  shuffle_order = shuffle_orders[hs_params.shuffle];
+  printf("CAN HS baud rate: %d\n", hs_params.baud);
+  printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
+  can_hs_init(hs_params.baud);
   can_prog_mode(CAN_HS);
+  initialized = true;
   printf ("Initialization done.\n\n");
 }
 
@@ -897,9 +920,8 @@ void loop (void)
 {
   bool verbose = false;
 
-  /* try and crack the PIN */
-
-  cemCrackPin (CALC_BYTES, verbose);
+  if (initialized)
+    cemCrackPin (CALC_BYTES, verbose);
 
   /* exit ECU programming mode */
 
