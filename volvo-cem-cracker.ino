@@ -423,12 +423,11 @@ again:
     ret = canMsgReceive(bus, &_id, data, true, false);
     if (!ret)
       goto again;
-    if (bus == CAN_HS && _id != 0x1000003UL)
+    if (bus == CAN_HS && _id != 0x1000003UL && _id != 0x400003UL)
       goto again;
-    if (bus == CAN_LS && _id != 0x0C00003UL)
+    if (bus == CAN_LS && _id != 0x0C00003UL && _id != 0x600005UL)
       goto again;
     if (data[0] & 0x80) {
-      pn *= 100; pn += bcdToBin(data[4]);
       pn *= 100; pn += bcdToBin(data[5]);
       pn *= 100; pn += bcdToBin(data[6]);
       pn *= 100; pn += bcdToBin(data[7]);
@@ -908,7 +907,7 @@ bool find_cem_params(unsigned long pn, struct _cem_params *p)
   int i;
   int n = sizeof(cem_params) / sizeof(struct _cem_params);
 
-  printf("Search P/N %lu in %d known CEMs\n", pn, n);
+  printf("Searching P/N %lu in %d known CEMs\n", pn, n);
   for (i = 0; i < n; i++) {
     if (cem_params[i].part_number == pn) {
       *p = cem_params[i];
@@ -957,8 +956,8 @@ void setup (void)
 
   can_hs.begin();
   k_line_keep_alive();
-  can_ls_init(CAN_125KBPS);
   delay(1000);
+  can_ls_init(CAN_125KBPS);
   k_line_keep_alive();
   pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
 
