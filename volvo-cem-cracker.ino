@@ -229,17 +229,15 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bo
 
   /* save data to the caller if they provided buffers */
 
-  if (id != NULL) {
+  if (id)
     *id = canId;
-  }
 
-  if (data != NULL) {
-    memcpy (data, pData, CAN_MSG_SIZE);
-  }
+  if (data)
+    memcpy(data, pData, CAN_MSG_SIZE);
 
   /* print the message we received */
 
-  if (verbose == true) {
+  if (verbose) {
     printf ("CAN_%cS <--- ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
             bus == CAN_HS ? 'H' : 'L',
             canId, pData[0], pData[1], pData[2], pData[3], pData[4], pData[5], pData[6], pData[7]);
@@ -332,6 +330,8 @@ uint32_t profileCemResponse (void)
   return rate;
 }
 
+volatile bool intr;
+
 /*******************************************************************************
  *
  * cemUnlock - attempt to unlock the CEM with the provided PIN
@@ -357,13 +357,13 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   /* maximum time to collect our samples */
 
   limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond();
-  can_hs_event_msg_available = false;
+  intr = false;
 
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
 
-  start = TSC;
-  while (!can_hs_event_msg_available && TSC < limit) {
+  start = end = TSC;
+  while (!intr && TSC < limit) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
     if (digitalRead(CAN_L_PIN))
@@ -857,6 +857,18 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   printf ("done\n");
 }
 
+void can_hs_event (const CAN_message_t &msg)
+{
+  can_hs_event_msg = msg;
+  can_hs_event_msg_available = true;
+}
+
+void can_ls_event (const CAN_message_t &msg)
+{
+  can_ls_event_msg = msg;
+  can_ls_event_msg_available = true;
+}
+
 void can_ls_init(int baud)
 {
   can_ls.begin();
@@ -864,6 +876,7 @@ void can_ls_init(int baud)
   can_ls.enableFIFO();
   can_ls.enableFIFOInterrupt();
   can_ls.setFIFOFilter(ACCEPT_ALL);
+  can_ls.onReceive(can_ls_event);
   printf ("CAN low-speed init done.\n");
 }
 
@@ -874,6 +887,7 @@ void can_hs_init(int baud)
   can_hs.enableFIFO();
   can_hs.enableFIFOInterrupt();
   can_hs.setFIFOFilter(ACCEPT_ALL);
+  can_hs.onReceive(can_hs_event);
   printf ("CAN high-speed init done.\n");
 }
 
@@ -886,13 +900,7 @@ void can_hs_init(int baud)
 
 void ext_output1(const CAN_message_t &msg)
 {
-  if (msg.bus == 1) {
-    can_hs_event_msg = msg;
-    can_hs_event_msg_available = true;
-  } else {
-    can_ls_event_msg = msg;
-    can_ls_event_msg_available = true;
-  }
+  intr = 1;
 }
 
 void k_line_keep_alive()
