@@ -411,30 +411,45 @@ unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
 {
   uint32_t _id;
   uint8_t  data[CAN_MSG_SIZE] = { 0xcb, id, 0xb9, 0xf0, 0x00, 0x00, 0x00, 0x00 };
+  uint8_t rcv[CAN_MSG_SIZE];
   bool     verbose = true;
   unsigned long pn = 0;
   int ret;
+  int i, j = 0;
+  int frame;
 
   printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
-
+yet_again:
   canMsgSend(bus, 0xffffe, data, verbose);
+  i = 0;
+  j++;
+  frame = 0;
+  if (j > 10)
+    return 0;
   do {
 again:
-    ret = canMsgReceive(bus, &_id, data, true, false);
+    i++;
+    if (i > 20)
+      goto yet_again;
+
+    ret = canMsgReceive(bus, &_id, rcv, true, false);
     if (!ret)
       goto again;
-    if (bus == CAN_HS && _id != 0x1000003UL && _id != 0x400003UL)
+    if (bus == CAN_HS && _id != 0x1000003UL && _id != 0x400003UL && _id != 0x1200003UL)
       goto again;
     if (bus == CAN_LS && _id != 0x0C00003UL && _id != 0x600005UL)
       goto again;
-    if (data[0] & 0x80) {
-      pn *= 100; pn += bcdToBin(data[5]);
-      pn *= 100; pn += bcdToBin(data[6]);
-      pn *= 100; pn += bcdToBin(data[7]);
-    } else if (!(data[0] & 0x40)) {
-      pn *= 100; pn += bcdToBin(data[1]);
+    i = 0;
+    if (frame == 0 && rcv[0] & 0x80) {
+      pn *= 100; pn += bcdToBin(rcv[5]);
+      pn *= 100; pn += bcdToBin(rcv[6]);
+      pn *= 100; pn += bcdToBin(rcv[7]);
+      frame++;
+    } else if (frame == 1 && !(rcv[0] & 0x40)) {
+      pn *= 100; pn += bcdToBin(rcv[1]);
+      frame++;
     }
-  } while(!(data[0] & 0x40));
+  } while(frame < 2);
 
   printf ("Part Number: %lu\n", pn);
   return pn;
@@ -936,6 +951,7 @@ bool initialized = false;
 
 void setup (void)
 {
+  bool hs_inited = false;
   /* set up the serial port */
 
   Serial.begin(115200);
@@ -969,10 +985,17 @@ void setup (void)
   k_line_keep_alive();
   pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
 
+  if (!pn) {// might be CEM-L
+    printf("Can't find part number on CAN-LS, trying CAN-HS at 500 Kbps\n");
+    can_hs_init(CAN_500KBPS);
+    hs_inited = true;
+    pn = ecu_read_part_number(CAN_HS, CEM_HS_ECU_ID);
+  }
+
 //while (true) { k_line_keep_alive(); delay(1000); }
 
   struct _cem_params hs_params;
-  if (!find_cem_params(pn, &hs_params)) {
+  if (!pn || !find_cem_params(pn, &hs_params)) {
     printf("Unknown CEM part number %lu. Don't know what to do.\n", pn);
     return;
   }
@@ -980,9 +1003,11 @@ void setup (void)
   shuffle_order = shuffle_orders[hs_params.shuffle];
   printf("CAN HS baud rate: %d\n", hs_params.baud);
   printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
-  can_hs_init(hs_params.baud);
+  if (!hs_inited) {
+    can_hs_init(hs_params.baud);
+    pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+  }
   can_prog_mode(CAN_HS);
-  pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
   initialized = true;
   printf ("Initialization done.\n\n");
 }
