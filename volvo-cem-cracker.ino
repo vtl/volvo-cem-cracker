@@ -109,6 +109,7 @@ struct _cem_params {
   { 30786889, CAN_500KBPS, 1 },
   { 31282457, CAN_500KBPS, 1 },
   { 31314468, CAN_500KBPS, 1 },
+  { 31394158, CAN_500KBPS, 1 },
 
 // P2 CEM-H (L shaped and marked H 2005 - 2007)
   { 30786476, CAN_500KBPS, 1 },
@@ -133,8 +134,6 @@ typedef struct seq {
 } sequence_t;
 
 sequence_t sequence[100] = { 0 };
-
-volatile bool canInterruptReceived = false;
 
 /* Teensy function to set the core's clock rate */
 
@@ -184,8 +183,8 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
 
 CAN_message_t can_hs_event_msg;
 CAN_message_t can_ls_event_msg;
-bool can_hs_event_msg_available = false;
-bool can_ls_event_msg_available = false;
+volatile bool can_hs_event_msg_available = false;
+volatile bool can_ls_event_msg_available = false;
 
 /*******************************************************************************
  *
@@ -201,10 +200,11 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bo
   uint8_t *pData;
   uint32_t canId = 0;
   bool     ret = false;
-  bool &msg_avail = (bus == CAN_HS ? can_hs_event_msg_available : can_ls_event_msg_available);
+  volatile bool &msg_avail = (bus == CAN_HS ? can_hs_event_msg_available : can_ls_event_msg_available);
   CAN_message_t &msg = (bus == CAN_HS ? can_hs_event_msg : can_ls_event_msg);
 
   do {
+
     /* call FlexCAN_T4's event handler to process queued messages */
 
     bus == CAN_HS ? can_hs.events() : can_ls.events();
@@ -220,13 +220,12 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bo
       pData = msg.buf;
       ret = true;
     }
-  } while ((ret == false) && (wait == true));
+  } while (!ret && wait);
 
   /* no message, just return an error */
 
-  if (ret == false) {
+  if (!ret)
     return ret;
-  }
 
   /* save data to the caller if they provided buffers */
 
@@ -363,20 +362,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
 
-  /*
-   * Sample the CAN bus and determine the longest time between bit transitions.
-   *
-   * The measurement is done in parallel with the CAN controller transmitting the
-   * CEM unlock message.  The longest time will occur between the end of message
-   * transmission (acknowledge slot bit) of the current message and the start of
-   * frame bit of the CEM's reply.
-   *
-   * The sampling terminates when any of the following conditions occurs:
-   *  - the CAN controller generates an interrupt from a received message
-   *  - a measured time between bits is greater than the expected CEM reply time
-   *  - a timeout occurs due to no bus activity
-   */
-
   start = TSC;
   while (!can_hs_event_msg_available && TSC < limit) {
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
@@ -425,6 +410,40 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
 {
   uint32_t _id;
+  uint8_t  data[CAN_MSG_SIZE] = { 0xcb, id, 0xb9, 0xf0, 0x00, 0x00, 0x00, 0x00 };
+  bool     verbose = true;
+  unsigned long pn = 0;
+  int ret;
+
+  printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
+
+  canMsgSend(bus, 0xffffe, data, verbose);
+  do {
+again:
+    ret = canMsgReceive(bus, &_id, data, true, false);
+    if (!ret)
+      goto again;
+    if (bus == CAN_HS && _id != 0x1000003UL)
+      goto again;
+    if (bus == CAN_LS && _id != 0x0C00003UL)
+      goto again;
+    if (data[0] & 0x80) {
+      pn *= 100; pn += bcdToBin(data[4]);
+      pn *= 100; pn += bcdToBin(data[5]);
+      pn *= 100; pn += bcdToBin(data[6]);
+      pn *= 100; pn += bcdToBin(data[7]);
+    } else if (!(data[0] & 0x40)) {
+      pn *= 100; pn += bcdToBin(data[1]);
+    }
+  } while(!(data[0] & 0x40));
+
+  printf ("Part Number: %lu\n", pn);
+  return pn;
+}
+
+unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
+{
+  uint32_t _id;
   uint8_t  data[CAN_MSG_SIZE] = { id, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   bool     verbose = true;
   unsigned long pn = 0;
@@ -438,6 +457,7 @@ unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
     pn *= 100;
     pn += bcdToBin(data[2 + i]);
   }
+
   printf ("Part Number: %lu\n", pn);
   return pn;
 }
@@ -885,9 +905,11 @@ void k_line_keep_alive()
 
 bool find_cem_params(unsigned long pn, struct _cem_params *p)
 {
-  unsigned int i;
+  int i;
+  int n = sizeof(cem_params) / sizeof(struct _cem_params);
 
-  for (i = 0; i < sizeof(cem_params) / sizeof(struct _cem_params); i++) {
+  printf("Search P/N %lu in %d known CEMs\n", pn, n);
+  for (i = 0; i < n; i++) {
     if (cem_params[i].part_number == pn) {
       *p = cem_params[i];
       return true;
@@ -931,13 +953,20 @@ void setup (void)
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
 
-  can_ls_init(CAN_125KBPS);
-  can_prog_mode(CAN_LS);
+  long pn;
 
-  long pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
+  can_hs.begin();
+  k_line_keep_alive();
+  can_ls_init(CAN_125KBPS);
+  delay(1000);
+  k_line_keep_alive();
+  pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
+
+//while (true) { k_line_keep_alive(); delay(1000); }
+
   struct _cem_params hs_params;
   if (!find_cem_params(pn, &hs_params)) {
-    printf("Unkown CEM part number %lu. Don't know what to do.\n", pn);
+    printf("Unknown CEM part number %lu. Don't know what to do.\n", pn);
     return;
   }
 
@@ -946,6 +975,7 @@ void setup (void)
   printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
   can_hs_init(hs_params.baud);
   can_prog_mode(CAN_HS);
+  pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
   initialized = true;
   printf ("Initialization done.\n\n");
 }
