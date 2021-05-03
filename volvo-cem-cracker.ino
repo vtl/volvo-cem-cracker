@@ -709,6 +709,10 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   for (uint32_t i = 0; i < 5; i++) {
     printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
   }
+  printf("...\n");
+  for (uint32_t i = 95; i < 100; i++) {
+    printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
+  }
   double lat_k = 100.0 * (sequence[0].latency - sequence[1].latency) / sequence[1].latency;
 
   /* set the digit in the overall PIN */
@@ -722,6 +726,10 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
   printf("\nbest candidates ordered by std:\n");
   for (uint32_t i = 0; i < 5; i++) {
+    printf ("%u: %02x std = %3.2f\n", i, sequence[i].pinValue, sequence[i].std);
+  }
+  printf("...\n");
+  for (uint32_t i = 95; i < 100; i++) {
     printf ("%u: %02x std = %3.2f\n", i, sequence[i].pinValue, sequence[i].std);
   }
   double std_k = 100.0 * (sequence[0].std - sequence[1].std) / sequence[1].std;
