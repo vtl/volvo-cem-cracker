@@ -482,16 +482,16 @@ unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
  * Returns: N/A
  */
 
-void can_prog_mode(can_bus_id_t bus)
+void can_prog_mode()
 {
   uint8_t  data[CAN_MSG_SIZE] = { 0xFF, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   uint32_t time = 5000;
   uint32_t delayTime = 5;
   bool     verbose = true;
 
-  printf ("Putting all ECUs on CAN_%cS into programming mode.\n", bus == CAN_HS ? 'H' : 'L');
+  printf ("Putting all ECUs into programming mode.\n");
 
-  while(canMsgReceive(bus, NULL, NULL, false, false));
+  while(canMsgReceive(CAN_HS, NULL, NULL, false, false));
 
   /* broadcast a series of PROG mode requests */
 
@@ -499,13 +499,14 @@ void can_prog_mode(can_bus_id_t bus)
     if ((time % 1000) == 0)
       k_line_keep_alive();
 
-    canMsgSend(bus, 0xffffe, data, verbose);
+    canMsgSend(CAN_HS, 0xffffe, data, verbose);
+    canMsgSend(CAN_LS, 0xffffe, data, verbose);
 
     verbose = false;
     time -= delayTime;
     delay (delayTime);
   }
-  while(canMsgReceive(bus, NULL, NULL, false, false));
+  while(canMsgReceive(CAN_HS, NULL, NULL, false, false));
 }
 
 /*******************************************************************************
