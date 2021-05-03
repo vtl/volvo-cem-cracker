@@ -545,7 +545,7 @@ int seq_max_std(const void *a, const void *b)
   sequence_t *_a = (sequence_t *)a;
   sequence_t *_b = (sequence_t *)b;
 
-  return _b->std - _a->std;
+  return (int)(100 * _b->std) - (int)(100 *_a->std);
 }
 
 /*******************************************************************************
