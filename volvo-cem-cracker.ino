@@ -788,7 +788,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   /* show numerial values for the known digits */
 
   for (i=0; i < maxBytes; i++) {
-    printf ("0x%02x ", pin[i]);
+    printf ("%02x ", pin[i]);
   }
 
   /* placeholder for the remaining digits */
@@ -833,7 +833,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
       /* the PIN worked, print it and terminate the search */
 
       printf ("done\n");
-      printf ("\nfound PIN: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",
+      printf ("\nfound PIN: %02x %02x %02x %02x %02x %02x",
               pinUsed[0], pinUsed[1], pinUsed[2], pinUsed[3], pinUsed[4], pinUsed[5]);
 
       cracked = true;
