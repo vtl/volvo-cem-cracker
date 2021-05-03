@@ -433,9 +433,10 @@ again:
     ret = canMsgReceive(bus, &_id, rcv, true, false);
     if (!ret)
       goto again;
-    if (bus == CAN_HS && _id != 0x1000003UL && _id != 0x400003UL && _id != 0x1200003UL)
+    _id &= 0xffff;
+    if (bus == CAN_HS && _id != 0x0003UL)
       goto again;
-    if (bus == CAN_LS && _id != 0x0C00003UL && _id != 0x600005UL)
+    if (bus == CAN_LS && _id != 0x0003UL && _id != 0x0005UL)
       goto again;
     i = 0;
     if (frame == 0 && rcv[0] & 0x80) {
