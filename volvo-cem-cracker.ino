@@ -624,7 +624,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         /* iterate the next PIN digit (third digit) */
 
-        pin[pos + 3] = binToBcd ((uint8_t)j);
+        pin[pos + 2] = binToBcd ((uint8_t)j);
 
         /* try and unlock and measure the latency */
 
