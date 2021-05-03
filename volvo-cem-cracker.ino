@@ -1035,11 +1035,13 @@ void setup (void)
   shuffle_order = shuffle_orders[hs_params.shuffle];
   printf("CAN HS baud rate: %d\n", hs_params.baud);
   printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
-  if (!hs_inited) {
+  if (!hs_inited)
     can_hs_init(hs_params.baud);
-    pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
-  }
-  can_prog_mode(CAN_HS);
+
+  can_prog_mode();
+  if (!hs_inited)
+      pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+
   initialized = true;
   printf ("Initialization done.\n\n");
 }
