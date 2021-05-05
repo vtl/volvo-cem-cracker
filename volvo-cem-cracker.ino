@@ -660,18 +660,23 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* loop over the histogram values */
 
-    for (k = xmin; k < xmax; k++) {
-      int l = k - cem_reply_min;
-      printf ("% 5u ", histogram[l]);
+    for (k = xmin; k < xmax; k++)
+      printf ("% 5u ", histogram[k - cem_reply_min]);
 
-      /* calculate weighted count and total of all entries */
-      prod += histogram[l] * l;
-      sum  += histogram[l];
+    for (k = cem_reply_min; k < cem_reply_max; k++) {
+      int l = k - cem_reply_min;
+      uint32_t h = histogram[l];
+
+      if (h) {
+        prod += h * k;
+        sum  += h;
+      }
     }
+
     int mean = sum / (xmax - xmin);
     long x = 0;
 
-    for (unsigned int k = xmin; k < xmax; k++) {
+    for (unsigned int k = cem_reply_min; k < cem_reply_max; k++) {
       int l = k - cem_reply_min;
       x += sq(histogram[l] - mean);
     }
