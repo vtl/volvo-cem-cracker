@@ -390,9 +390,8 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* return the maximum time between transmissions that we saw on the CAN bus */
 
-  if (latency != NULL) {
+  if (latency)
     *latency = maxTime;
-  }
 
   /* return PIN used if the caller wants it */
 
@@ -718,7 +717,9 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   for (uint32_t i = 95; i < 100; i++) {
     printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
   }
-  double lat_k = 100.0 * (sequence[0].latency - sequence[1].latency) / sequence[1].latency;
+  double lat_k_0_1   = 100.0 * (sequence[0].latency - sequence[1].latency) / sequence[1].latency;
+  double lat_k_98_99 = 100.0 * (sequence[98].latency - sequence[99].latency) / sequence[99].latency;
+  double lat_k_0_99  = 100.0 * (sequence[0].latency - sequence[99].latency) / sequence[99].latency;
 
   /* set the digit in the overall PIN */
 
@@ -737,15 +738,26 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   for (uint32_t i = 95; i < 100; i++) {
     printf ("%u: %02x std = %3.2f\n", i, sequence[i].pinValue, sequence[i].std);
   }
-  double std_k = 100.0 * (sequence[0].std - sequence[1].std) / sequence[1].std;
+  double std_k_0_1   = 100.0 * (sequence[0].std - sequence[1].std) / sequence[1].std;
+  double std_k_98_99 = 100.0 * (sequence[98].std - sequence[99].std) / sequence[99].std;
+  double std_k_0_99  = 100.0 * (sequence[0].std - sequence[99].std) / sequence[99].std;
 
-  printf("\nlat_k %3.2f%%, std_k %3.2f%%\n", lat_k, std_k);
+  printf("\nlat_k 0-1 %3.2f%%, lat_k 98-99 %3.2f%%, lat_k 0-99 %3.2f%%\n", lat_k_0_1, lat_k_98_99, lat_k_0_99);
+  printf("std_k 0-1 %3.2f%%, std_k 98-99 %3.2f%%, std_k 0-99 %3.2f%%\n", std_k_0_1, std_k_98_99, std_k_0_99);
 
-  if (10 * lat_k > std_k) { /* latency has higher priority than std */
+  if (lat_k_0_99 > std_k_0_99) {
+    printf("Latency has more deviation than STD\n");
     /* choose the PIN value that has the highest latency */
     printf ("pin[%u] choose candidate: %02x based on latency\n", pos, pin[pos]);
   } else {
-    pin[pos] = sequence[0].pinValue;
+    printf("STD has more deviation than latency\n");
+    if (std_k_0_1 > std_k_98_99) {
+      printf("STD[0] deviates more than STD[99]\n");
+      pin[pos] = sequence[0].pinValue;
+    } else {
+      printf("STD[99] deviates more than STD[0]\n");
+      pin[pos] = sequence[99].pinValue;
+    }
     printf ("pin[%u] choose candidate: %02x based on std\n", pos, pin[pos]);
   }
 
@@ -1013,7 +1025,7 @@ void setup (void)
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
 
-  long pn;
+  long pn = 0;
 
   can_hs.begin();
   k_line_keep_alive();
