@@ -12,6 +12,7 @@
 
 #define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+//#define CEM_PN_AUTODETECT
 
 /* end of tunable parameters */
 
@@ -193,7 +194,7 @@ volatile bool can_ls_event_msg_available = false;
  * Returns: true if a message was available, false otherwise
  */
 
-bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bool verbose)
+bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, bool verbose)
 {
   uint8_t *pData;
   uint32_t canId = 0;
@@ -217,6 +218,9 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, bool wait, bo
       canId = msg.id;
       pData = msg.buf;
       ret = true;
+    } else {
+      delay(1);
+      wait--;
     }
   } while (!ret && wait);
 
@@ -345,7 +349,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   uint32_t start, end, limit;
   uint32_t id;
   uint32_t maxTime = 0;
-  bool     replyWait = true;
 
   /* shuffle the PIN and set it in the request message */
 
@@ -386,7 +389,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* see if anything came back from the CEM */
 
-  canMsgReceive(CAN_HS, &id, reply, replyWait, false);
+  canMsgReceive(CAN_HS, &id, reply, 1000, false);
 
   /* return the maximum time between transmissions that we saw on the CAN bus */
 
@@ -429,7 +432,7 @@ again:
     if (i > 20)
       goto yet_again;
 
-    ret = canMsgReceive(bus, &_id, rcv, true, false);
+    ret = canMsgReceive(bus, &_id, rcv, 10, true);
     if (!ret)
       goto again;
     _id &= 0xffff;
@@ -463,7 +466,7 @@ unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
   printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
 
   canMsgSend(bus, 0xffffe, data, verbose);
-  canMsgReceive(bus, &_id, data, true, verbose);
+  canMsgReceive(bus, &_id, data, 1000, verbose);
 
   for (int i = 0; i < 6; i++) {
     pn *= 100;
@@ -490,7 +493,7 @@ void can_prog_mode()
 
   printf ("Putting all ECUs into programming mode.\n");
 
-  while(canMsgReceive(CAN_HS, NULL, NULL, false, false));
+  while(canMsgReceive(CAN_HS, NULL, NULL, 1, false));
 
   /* broadcast a series of PROG mode requests */
 
@@ -505,7 +508,7 @@ void can_prog_mode()
     time -= delayTime;
     delay (delayTime);
   }
-  while(canMsgReceive(CAN_HS, NULL, NULL, false, false));
+  while(canMsgReceive(CAN_HS, NULL, NULL, 1, false));
 }
 
 /*******************************************************************************
@@ -906,7 +909,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
 
     memset (data, 0, sizeof(data));
 
-    canMsgReceive(CAN_HS, &can_id, data, true, false);
+    canMsgReceive(CAN_HS, &can_id, data, 10, false);
 
     /* verify the response came from the CEM and is a successful reply to our request */
 
@@ -1027,6 +1030,7 @@ void setup (void)
 
   long pn = 0;
 
+#if defined(CEM_PN_AUTODETECT)
   can_hs.begin();
   k_line_keep_alive();
   delay(1000);
@@ -1040,8 +1044,12 @@ void setup (void)
     hs_inited = true;
     pn = ecu_read_part_number(CAN_HS, CEM_HS_ECU_ID);
   }
-
-//while (true) { k_line_keep_alive(); delay(1000); }
+#else
+  can_ls_init(CAN_125KBPS);
+  can_hs_init(CAN_500KBPS);
+  can_prog_mode();
+  pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+#endif
 
   struct _cem_params hs_params;
   if (!pn || !find_cem_params(pn, &hs_params)) {
@@ -1052,13 +1060,15 @@ void setup (void)
   shuffle_order = shuffle_orders[hs_params.shuffle];
   printf("CAN HS baud rate: %d\n", hs_params.baud);
   printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
+
+#if !defined(CEM_PN_AUTODETECT)
   if (!hs_inited)
     can_hs_init(hs_params.baud);
 
   can_prog_mode();
   if (!hs_inited)
       pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
-
+#endif
   initialized = true;
   printf ("Initialization done.\n\n");
 }
