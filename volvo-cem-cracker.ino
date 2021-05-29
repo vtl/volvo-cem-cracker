@@ -10,8 +10,10 @@
 
 /* tunable parameters */
 
-#define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
-#define CALC_BYTES     3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define SAMPLES        100   /* number of samples per sequence, more is better (up to 100) */
+#define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
+//#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
 
 /* end of tunable parameters */
 
@@ -22,7 +24,6 @@
 #error Unsupported Teensy model, need 4.0
 #endif
 
-//#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
 uint32_t cem_reply_min;
 uint32_t cem_reply_avg;
 uint32_t cem_reply_max;
@@ -1030,8 +1031,9 @@ void setup (void)
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
 
-  long pn;
+  long pn = 0;
 
+#if defined(CEM_PN_AUTODETECT)
   can_hs.begin();
   k_line_keep_alive();
   delay(1000);
@@ -1045,8 +1047,12 @@ void setup (void)
     hs_inited = true;
     pn = ecu_read_part_number(CAN_HS, CEM_HS_ECU_ID);
   }
-
-//while (true) { k_line_keep_alive(); delay(1000); }
+#else
+  can_ls_init(CAN_125KBPS);
+  can_hs_init(CAN_500KBPS);
+  can_prog_mode();
+  pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+#endif
 
   struct _cem_params hs_params;
   if (!pn || !find_cem_params(pn, &hs_params)) {
@@ -1057,12 +1063,15 @@ void setup (void)
   shuffle_order = shuffle_orders[hs_params.shuffle];
   printf("CAN HS baud rate: %d\n", hs_params.baud);
   printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
+
+#if defined(CEM_PN_AUTODETECT)
   if (!hs_inited)
     can_hs_init(hs_params.baud);
 
   can_prog_mode();
   if (!hs_inited)
       pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+#endif
 
   initialized = true;
   printf ("Initialization done.\n\n");
