@@ -57,7 +57,8 @@ typedef enum {
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
-unsigned char  shuffle_orders[2][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 } };
+unsigned char  shuffle_orders[3][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3} };
+
 unsigned char *shuffle_order;
 
 struct _cem_params {
@@ -84,7 +85,7 @@ struct _cem_params {
   { 8645719, CAN_250KBPS, 0 },
   { 8688434, CAN_250KBPS, 0 },
   { 8688436, CAN_250KBPS, 0 },
-  { 8688513, CAN_250KBPS, 0 },
+  { 8688513, CAN_250KBPS, 2 },
   { 30657629, CAN_250KBPS, 0 },
   { 9494336, CAN_250KBPS, 0 },
   { 9494594, CAN_250KBPS, 0 },
