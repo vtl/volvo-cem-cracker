@@ -13,6 +13,7 @@
 #define SAMPLES        100   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
+#define LAT_ONLY             /* choose candidates by latency only (vs latency/standard deviation) */
 //#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
 
 /* end of tunable parameters */
@@ -751,6 +752,9 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   printf("\nlat_k 0-1 %3.2f%%, lat_k 98-99 %3.2f%%, lat_k 0-99 %3.2f%%\n", lat_k_0_1, lat_k_98_99, lat_k_0_99);
   printf("std_k 0-1 %3.2f%%, std_k 98-99 %3.2f%%, std_k 0-99 %3.2f%%\n", std_k_0_1, std_k_98_99, std_k_0_99);
 
+#ifdef LAT_ONLY
+    printf ("pin[%u] choose candidate: %02x (latency only)\n", pos, pin[pos]);
+#else
   if (lat_k_0_99 > std_k_0_99) {
     printf("Latency has more deviation than STD\n");
     /* choose the PIN value that has the highest latency */
@@ -766,6 +770,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
     }
     printf ("pin[%u] choose candidate: %02x based on std\n", pos, pin[pos]);
   }
+#endif
 
   free(histogram);
 }
