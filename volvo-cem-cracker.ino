@@ -10,7 +10,7 @@
 
 /* tunable parameters */
 
-#define SAMPLES        100   /* number of samples per sequence, more is better (up to 100) */
+#define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
 #define LAT_ONLY             /* choose candidates by latency only (vs latency/standard deviation) */
@@ -59,7 +59,7 @@ typedef enum {
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
-unsigned char  shuffle_orders[3][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3} };
+unsigned char  shuffle_orders[4][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3}, { 2, 4, 5, 0, 3, 1} };
 
 unsigned char *shuffle_order;
 
@@ -77,8 +77,8 @@ struct _cem_params {
   { 30728906, CAN_500KBPS, 0 },
   { 30765015, CAN_500KBPS, 0 },
   { 31254317, CAN_500KBPS, 0 },
-  { 31327215, CAN_500KBPS, 0 },
-  { 31254749, CAN_500KBPS, 0 },
+  { 31327215, CAN_500KBPS, 3 },
+  { 31254749, CAN_500KBPS, 3 },
   { 31254903, CAN_500KBPS, 0 },
   { 31296881, CAN_500KBPS, 0 },
 
