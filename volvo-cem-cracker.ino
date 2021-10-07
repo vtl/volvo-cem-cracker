@@ -348,7 +348,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   uint8_t  unlockMsg[CAN_MSG_SIZE] = { CEM_HS_ECU_ID, 0xBE };
   uint8_t  reply[CAN_MSG_SIZE];
   uint8_t *pMsgPin = unlockMsg + 2;
-  uint32_t start, end, limit;
+  uint64_t start, end, limit;
   uint32_t id;
   uint32_t maxTime = 0;
 
