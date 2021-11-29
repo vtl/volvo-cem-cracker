@@ -100,6 +100,7 @@ struct _cem_params {
 // P2 CEM-L (L shaped and marked L 2005-2014)
   { 30682981, CAN_500KBPS, 1 },
   { 30682982, CAN_500KBPS, 1 },
+  { 30728356, CAN_500KBPS, 1 },
   { 30728542, CAN_500KBPS, 1 },
   { 30765149, CAN_500KBPS, 1 },
   { 30765646, CAN_500KBPS, 1 },
