@@ -75,7 +75,7 @@ struct _cem_params {
  { 30728906, CAN_500KBPS, 2 },  /* Unconfirmed */
  { 30765015, CAN_500KBPS, 2 },  /* Confirmed */
  { 31254317, CAN_500KBPS, 2 },  /* Confirmed */
- { 31327215, CAN_500KBPS, 3 },  /* Assumed Confirmed */
+ { 31327215, CAN_500KBPS, 3 },  /* Confirmed */
  { 31254749, CAN_500KBPS, 3 },  /* Assumed Confirmed */
  { 31254903, CAN_500KBPS, 2 },  /* Confirmed */
  { 31296881, CAN_500KBPS, 2 },  /* Unconfirmed */
