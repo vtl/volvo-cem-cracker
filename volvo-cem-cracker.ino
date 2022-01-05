@@ -11,7 +11,7 @@
 /* tunable parameters */
 
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-//#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
+#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
 //#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
 
 /* end of tunable parameters */
