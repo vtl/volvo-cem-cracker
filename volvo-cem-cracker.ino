@@ -67,19 +67,19 @@ struct _cem_params {
   int shuffle;
 } cem_params[] = {
 // P1
-  { 8690719, CAN_500KBPS, 2 }, /* Confirmed */
-  { 8690720, CAN_500KBPS, 2 }, /* Confirmed */
-  { 8690721, CAN_500KBPS, 2 }, /* Unconfirmed */
-  { 8690722, CAN_500KBPS, 2 }, /* Confirmed */
-  { 30765471, CAN_500KBPS, 2 }, /* Confirmed */
-  { 30728906, CAN_500KBPS, 2 }, /* Unconfirmed */
-  { 30765015, CAN_500KBPS, 2 }, /* Confirmed */
-  { 31254317, CAN_500KBPS, 2 }, /* Confirmed */
-  { 31327215, CAN_500KBPS, 3 }, /* Assumed Confirmed */
-  { 31254749, CAN_500KBPS, 3 }, /* Assumed Confirmed */
-  { 31254903, CAN_500KBPS, 2 }, /* Confirmed */
-  { 31296881, CAN_500KBPS, 2 }, /* Unconfirmed */ 
-    
+  { 8690719,  CAN_500KBPS, 0 },
+  { 8690720,  CAN_500KBPS, 0 },
+  { 8690721,  CAN_500KBPS, 0 },
+  { 8690722,  CAN_500KBPS, 0 },
+  { 30765471, CAN_500KBPS, 0 },
+  { 30728906, CAN_500KBPS, 0 },
+  { 30765015, CAN_500KBPS, 0 },
+  { 31254317, CAN_500KBPS, 0 },
+  { 31327215, CAN_500KBPS, 3 },
+  { 31254749, CAN_500KBPS, 3 },
+  { 31254903, CAN_500KBPS, 0 },
+  { 31296881, CAN_500KBPS, 0 },
+
 // P2 CEM-B (Brick shaped 1999-2004 with K-line)
   { 8645716, CAN_250KBPS, 0 },
   { 8645719, CAN_250KBPS, 0 },
