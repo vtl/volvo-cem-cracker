@@ -30,6 +30,8 @@ int cem_reply_max;
 #define AVERAGE_DELTA_MIN     -8  /* buckets to look at before the rolling average */
 #define AVERAGE_DELTA_MAX     12  /* buckets to look at after the rolling average  */
 
+#define LATENCY_RESOLUTION     1  /* Latency Resolution */
+
 #define CAN_L_PIN    2          /* CAN Rx pin connected to digital pin 2 */
 
 #define CAN_500KBPS 500000      /* 500 Kbit speed */
@@ -67,8 +69,8 @@ struct _cem_params {
   int shuffle;
 } cem_params[] = {
 // P1
-  { 8690719,  CAN_500KBPS, 0 },
-  { 8690720,  CAN_500KBPS, 0 },
+  { 8690719,  CAN_500KBPS, 0 }, // Try LATENCY_RESOLUTION=4
+  { 8690720,  CAN_500KBPS, 0 }, // Try LATENCY_RESOLUTION=4
   { 8690721,  CAN_500KBPS, 0 },
   { 8690722,  CAN_500KBPS, 0 },
   { 30765471, CAN_500KBPS, 0 },
@@ -275,6 +277,29 @@ uint8_t bcdToBin (uint8_t value)
 
 /*******************************************************************************
  *
+ * clockCyclesPerLatencyUnit - return clock cycles per latency unit
+ *
+ * Returns: number of clock cycles per latency unit
+ */
+
+uint32_t clockCyclesPerLatencyUnit ()
+{
+  return clockCyclesPerMicrosecond() / LATENCY_RESOLUTION;
+}
+
+/*******************************************************************************
+ *
+ * latencyToMicroseconds - convert a latency measurement into microseconds
+ *
+ * Returns: latency value converted to microseconds
+ */
+uint32_t latencyToMicroseconds(uint32_t latency)
+{
+  return latency / LATENCY_RESOLUTION;  
+}
+
+/*******************************************************************************
+ *
  * profileCemResponse - profile the CEM's response to PIN requests
  *
  * Returns: number of PINs processed per second
@@ -311,7 +336,7 @@ uint32_t profileCemResponse (void)
 
     /* keep a running total of the average latency */
 
-    cem_reply_avg += latency / clockCyclesPerMicrosecond();
+    cem_reply_avg += latency / clockCyclesPerLatencyUnit();
   }
 
   /* end time in milliseconds */
@@ -329,7 +354,11 @@ uint32_t profileCemResponse (void)
 
   rate = 1e6 / (end - start);
 
-  printf ("1000 pins in %u ms, %u pins/s, average response: %u us, histogram %u to %u us \n", (end - start), rate, cem_reply_avg, cem_reply_min, cem_reply_max);
+  printf ("1000 pins in %u ms, %u pins/s, average response: %u us, histogram %u to %u us \n", (end - start),
+                                                                                              rate,
+                                                                                              latencyToMicroseconds(cem_reply_avg),
+                                                                                              latencyToMicroseconds(cem_reply_min),
+                                                                                              latencyToMicroseconds(cem_reply_max));
   return rate;
 }
 
@@ -358,7 +387,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* maximum time to collect our samples */
 
-  limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond();
+  limit = TSC + 2 * 1000 * clockCyclesPerLatencyUnit();
   intr = false;
 
   /* send the unlock request */
@@ -594,7 +623,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
   if (50 < range)
     printf(" (+ %d more)\n", range - 50);
   printf("\n");
-  printf("                   us: ");
+  printf("        latency units: ");
   for (i = xmin; i < xmax; i++)
     printf("%5d ", i);
   printf("\n");
@@ -650,7 +679,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
         /* calculate the index into the historgram */
 
-        int idx = latency / clockCyclesPerMicrosecond();
+        int idx = latency / clockCyclesPerLatencyUnit();
 
         if (idx < cem_reply_min)
           idx = cem_reply_min;
