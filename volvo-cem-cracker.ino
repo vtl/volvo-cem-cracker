@@ -1055,19 +1055,18 @@ void p3_hash(unsigned char *pin, unsigned char *seed, unsigned char *hash)
 
 bool p3_cem_get_seed(unsigned char *seed, bool verbose)
 {
-  unsigned char msg[8] = { 0x02, 0x27, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
+  unsigned char req[8] = { 0x02, 0x27, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 };
+  unsigned char msg[8];
   bool ret = true;
   uint32_t id;
 
 again:
   do {
+    while (canMsgReceive(CAN_HS, NULL, NULL, 0, false));
     if (!ret) {
-      printf("%s: ugh...\n", __func__);
       delay(1000);
-      verbose = true;
-      while (canMsgReceive(CAN_HS, NULL, NULL, 0, true));
     }
-    canMsgSend(CAN_HS, false, 0x726, msg, verbose);
+    canMsgSend(CAN_HS, false, 0x726, req, verbose);
     id = 0xff;
     memset(msg, 0xff, sizeof(msg));
     ret = canMsgReceive(CAN_HS, &id, msg, 1000, verbose);
@@ -1076,9 +1075,10 @@ again:
   if (ret && id == 0x72e && msg[0] == 0x05 && msg[1] == 0x67 && msg[2] == 0x01) {
     memcpy(seed, msg + 3, 3);
     if (seed[0] == 0 && seed[1] == 0 && seed[2] == 0)
-        printf("what? seed 0 0 0? ID %x, %02x %02x %02x %02x %02x %02x %02x %02x \n", id, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
+        printf("%s: what? seed 0 0 0? ID %x, %02x %02x %02x %02x %02x %02x %02x %02x \n", __func__, id, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
   } else {
-    printf("what? ID %x, %02x %02x %02x %02x %02x %02x %02x %02x \n", id, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
+    printf("%s: what? ID %x, %02x %02x %02x %02x %02x %02x %02x %02x \n", __func__, id, msg[0], msg[1], msg[2], msg[3], msg[4], msg[5], msg[6], msg[7]);
+    can_prog_mode();
     ret = false;
     goto again;
   }
@@ -1088,19 +1088,22 @@ again:
 
 int p3_cem_send_key(unsigned char *key, bool verbose)
 {
-  unsigned char msg[8] = { 0x05, 0x27, 0x02, key[0], key[1], key[2], 0x00, 0x00 };
+  unsigned char req[8] = { 0x05, 0x27, 0x02, key[0], key[1], key[2], 0x00, 0x00 };
+  unsigned char msg[8];
   int ret = -1;
   uint32_t id;
 
-  if (!canMsgSend(CAN_HS, false, 0x726, msg, verbose)) {
-    printf("%s: canMsgSend failed\n", __func__);
-    goto out;
-  }
-
-  if (!canMsgReceive(CAN_HS, &id, msg, 1000, verbose)) {
-    printf("%s: canMsgReceive failed\n", __func__);
-    goto out;
-  }
+again:
+  do {
+    while (canMsgReceive(CAN_HS, NULL, NULL, 0, false));
+    if (!ret) {
+      delay(1000);
+    }
+    canMsgSend(CAN_HS, false, 0x726, req, verbose);
+    id = 0xff;
+    memset(msg, 0xff, sizeof(msg));
+    ret = canMsgReceive(CAN_HS, &id, msg, 1000, verbose);
+  } while (!ret);
 
   if (id == 0x72e && msg[0] == 0x02 && msg[1] == 0x67 && msg[2] == 0x02) {
     printf("reply: ");
@@ -1108,6 +1111,9 @@ int p3_cem_send_key(unsigned char *key, bool verbose)
       printf("%02x ", msg[i]);
     printf("\n");
     ret = 1;
+  } else if (id == 0x72e && msg[0] == 0x03 && msg[1] == 0x27 && msg[2] == 0x35) {
+    can_prog_mode();
+    goto again;
   } else {
     ret = 0;
   }
