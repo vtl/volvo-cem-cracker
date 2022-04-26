@@ -1132,36 +1132,35 @@ void p3_find_hash_collision(unsigned char *_seed, unsigned char *_key)
   bool verbose = false;
   unsigned long now, last = TSC, diff;
 
-  for (int p1 = 0; p1 < 100; p1++) {
-    pin[1] = binToBcd(p1);
-    for (int p2 = 0; p2 < 100; p2++) {
-      pin[2] = binToBcd(p2);
-      for (int p3 = 0; p3 < 100; p3++) {
-        pin[3] = binToBcd(p3);
-        if ((p3 % 10) == 0)
+  for (int p2 = 0xc7; p2 < 0x100; p2++) {
+    pin[2] = p2;
+    for (int p3 = 0; p3 < 0x100; p3++) {
+      pin[3] = p3;
+      for (int p4 = 0; p4 < 0x100; p4++) {
+        pin[4] = p4;
+        if ((p4 % 10) == 0) {
           p3_keep_alive(false);
-        for (int p4 = 0; p4 < 100; p4++) {
-          pin[4] = binToBcd(p4);
-retry:
-          p3_cem_get_seed(seed, verbose);
-          p3_hash(pin, seed, key);
-          now = TSC;
-          diff = (now - last) /  (1000 * clockCyclesPerMicrosecond());
-          if (verbose || diff >= 1000) {
-            printf("SEED %02x %02x %02x, PIN %02x %02x %02x %02x %02x, KEY %02x %02x %02x, %d pins/s\n", seed[0], seed[1], seed[2], pin[0], pin[1], pin[2], pin[3], pin[4], key[0], key[1], key[2], i);
-            last = now;
-            i = 0;
-          }
-          ret = p3_cem_send_key(key, verbose);
-          if (ret > 0)
-            goto out;
-          else if (ret < 0) { // need new seed
-            verbose = true;
-            goto retry;
-          }
-          verbose = false;
-          i++;
         }
+retry:
+        p3_cem_get_seed(seed, verbose);
+        p3_hash(pin, seed, key);
+        now = TSC;
+        diff = (now - last) /  (1000 * clockCyclesPerMicrosecond());
+        if (verbose || diff >= 1000) {
+          printf("SEED %02x %02x %02x, PIN %02x %02x %02x %02x %02x, KEY %02x %02x %02x, %d pins/s\n", seed[0], seed[1], seed[2], pin[0], pin[1], pin[2], pin[3], pin[4], key[0], key[1], key[2], i);
+          last = now;
+          i = 0;
+        }
+        ret = p3_cem_send_key(key, verbose);
+        if (ret > 0)
+          goto out;
+        else if (ret < 0) { // need new seed
+          p3_keep_alive(false);
+          verbose = true;
+          goto retry;
+        }
+        verbose = false;
+        i++;
       }
     }
   }
