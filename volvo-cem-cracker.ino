@@ -1132,7 +1132,7 @@ void p3_find_hash_collision(unsigned char *_seed, unsigned char *_key)
   bool verbose = false;
   unsigned long now, last = TSC, diff;
 
-  for (int p2 = 0xc7; p2 < 0x100; p2++) {
+  for (int p2 = 0; p2 < 0x100; p2++) {
     pin[2] = p2;
     for (int p3 = 0; p3 < 0x100; p3++) {
       pin[3] = p3;
