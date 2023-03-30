@@ -78,7 +78,7 @@ struct _cem_params {
   { 31327215, CAN_500KBPS, 3 },
   { 31254749, CAN_500KBPS, 3 },
   { 31254903, CAN_500KBPS, 0 },
-  { 31296881, CAN_500KBPS, 0 },
+  { 31296881, CAN_500KBPS, 3 },
 
 // P2 CEM-B (Brick shaped 1999-2004 with K-line)
   { 8645716, CAN_250KBPS, 0 },
