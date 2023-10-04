@@ -10,9 +10,12 @@
 
 /* tunable parameters */
 
-#define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
-//#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
+//#define  DUMP_BUCKETS    /* dump all buckets for debugging */
+#define CEM_PN_AUTODETECT  /* comment out for P2 CEM-L on the bench w/o DIM */
+#define KNOWN_BYTES	0      /* how many PIN bytes we know and skip it from calculation */
+#define CALC_BYTES  3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define CPU_CLOCK  	true	 /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency */
+int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };		/* replace 0x00 by values for known PIN bytes */
 
 /* end of tunable parameters */
 
@@ -753,7 +756,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
  * Returns: N/A
  */
 
-void cemCrackPin (int maxBytes, bool verbose)
+void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 {
   uint8_t  pin[PIN_LEN];
   uint8_t  pinUsed[PIN_LEN];
@@ -764,7 +767,7 @@ void cemCrackPin (int maxBytes, bool verbose)
   uint32_t crackRate;
   uint32_t remainingBytes;
   bool     cracked = false;
-  int i;
+  int      i;
 
   printf ("Calculating bytes 0-%u\n", maxBytes - 1);
 
@@ -780,9 +783,14 @@ void cemCrackPin (int maxBytes, bool verbose)
 
   memset (pin, 0x00, sizeof(pin));
 
+  /* to fill the first known bytes into PIN */
+  
+  for (i = 0; i < knownBytes; i++)
+    pin[i] = kpin[i];
+  
   /* try and crack each PIN position */
 
-  for (i = 0; i < maxBytes; i++) {
+  for (i = knownBytes; i < maxBytes; i++) {
     crackPinPosition (pin, i, verbose);
   }
 
@@ -856,6 +864,11 @@ void cemCrackPin (int maxBytes, bool verbose)
       percent++;
     }
   }
+
+  /* print "100%" into progress line in case PIN has not been cracked */
+
+   if (cracked == false)
+    printf ("%u%%", percent * 5);
 
   /* print execution summary */
 
@@ -999,7 +1012,8 @@ void setup (void)
 
   pinMode (CAN_L_PIN, INPUT_PULLUP);
 
-  set_arm_clock (180000000);
+  if (CPU_CLOCK)
+    set_arm_clock (180000000);
 
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
@@ -1064,7 +1078,7 @@ void loop (void)
   bool verbose = false;
 
   if (initialized)
-    cemCrackPin (CALC_BYTES, verbose);
+    cemCrackPin (KNOWN_BYTES, CALC_BYTES, verbose);
 
   /* exit ECU programming mode */
 
