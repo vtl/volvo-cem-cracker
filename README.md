@@ -54,16 +54,16 @@ Attempt 4:
 There are two possible solutions that may help:
 1. Use brute force for rest of bytes - it may take up to 18-20 hours. To do it, change the following tunable parameter value to 2 in line #16:
 ```
-#define CALC_BYTES     2     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define CALC_BYTES   2      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
 ```
 
 2. Another solution that may help - change value from 'true' to 'false' in the line #15:
 ```
-#define CPU_CLOCK	false    /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency */
+#define CPU_CLOCK    false   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
 ```
 
 And to avoid time waste, indicate the number of known bytes and hardcode the first bytes that you already know in lines #17 and #18:
 ```
-#define KNOWN_BYTES	2   /* how many PIN bytes we know and skip it from calculation */
-int kpin[6] = { 0x32, 0x78, 0x00, 0x00, 0x00, 0x00 };   /* replace 0x00 by values for known bytes */
+#define KNOWN_BYTES  2      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
+int kpin[6] = { 0x32, 0x78, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by values for known PIN bytes. Default values are 0x00 */
 ```
