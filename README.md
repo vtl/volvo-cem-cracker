@@ -52,26 +52,19 @@ Attempt 4:
 ```
 
 There are two possible solutions that may help:
-1. Use brute force for rest of bytes - it may take 18-20 hours. To do it, change the following tunable parameter value to 2:
+1. Use brute force for rest of bytes - it may take up to 18-20 hours. To do it, change the following tunable parameter value to 2 in line #16:
 ```
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 ```
 
-2. Another solution that may help - comment out the following line:
+2. Another solution that may help - change value from 'true' to 'false' in the line #17:
 ```
-set_arm_clock (180000000);
+#define CPU_CLOCK	false    /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency */
 ```
 
-And to avoid time waste, hardcode the first two bytes that you already know:
+And to avoid time waste, indicate the number of known bytes in line #15 and hardcode the first bytes that you already know in line #18:
 ```
-  /* try and crack each PIN position */
-  
-  // Add lines to skip first known bytes */
-  pin[0] = 0x32; // Known first byte example
-  pin[1] = 0x78; // Known second byte example
-
-  // Change initial value of i from 0 to 2
-  for (i = 2; i < maxBytes; i++) {
-    crackPinPosition (pin, i, verbose);
-  }
+#define KNOWN_BYTES	2   /* how many PIN bytes we know and skip it from calculation */
+```
+int kpin[6] = { 0x32, 0x78, 0x00, 0x00, 0x00, 0x00 };   /* replace 0x00 by values for known bytes */
 ```
