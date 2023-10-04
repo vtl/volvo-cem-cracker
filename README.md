@@ -57,14 +57,13 @@ There are two possible solutions that may help:
 #define CALC_BYTES     2     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 ```
 
-2. Another solution that may help - change value from 'true' to 'false' in the line #17:
+2. Another solution that may help - change value from 'true' to 'false' in the line #15:
 ```
 #define CPU_CLOCK	false    /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency */
 ```
 
-And to avoid time waste, indicate the number of known bytes in line #15 and hardcode the first bytes that you already know in line #18:
+And to avoid time waste, indicate the number of known bytes and hardcode the first bytes that you already know in lines #17 and #18:
 ```
 #define KNOWN_BYTES	2   /* how many PIN bytes we know and skip it from calculation */
-...
 int kpin[6] = { 0x32, 0x78, 0x00, 0x00, 0x00, 0x00 };   /* replace 0x00 by values for known bytes */
 ```
