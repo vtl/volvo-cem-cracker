@@ -66,5 +66,5 @@ And to avoid time waste, indicate the number of known bytes in line #15 and hard
 ```
 #define KNOWN_BYTES	*2*   /* how many PIN bytes we know and skip it from calculation */
 ...
-int kpin[6] = { *0x32*, *0x78*, 0x00, 0x00, 0x00, 0x00 };   /* replace 0x00 by values for known bytes */
+int kpin[6] = { **0x32**, 0x78, 0x00, 0x00, 0x00, 0x00 };   /* replace 0x00 by values for known bytes */
 ```
