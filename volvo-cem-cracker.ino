@@ -827,7 +827,7 @@ void cemCrackPin (int maxBytes, bool verbose)
 
     /* fill in each of the remaining PIN values */
 
-    for (uint32_t j = maxBytes; j < PIN_LEN; j++) {
+    for (int j = PIN_LEN -1; j >= maxBytes; j--) {
       pin[j] = binToBcd (pinValues % 100);
 
       /* shift to the next PIN's value */
