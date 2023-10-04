@@ -354,7 +354,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   /* shuffle the PIN and set it in the request message */
 
   for (int i = 0; i < PIN_LEN; i++)
-    pMsgPin[shuffle_order[i]] = pin[i];
+    pMsgPin[i] = pin[shuffle_order[i]];
 
   /* maximum time to collect our samples */
 
