@@ -13,9 +13,9 @@
 //#define  DUMP_BUCKETS    /* dump all buckets for debugging */
 #define CEM_PN_AUTODETECT  /* comment out for P2 CEM-L on the bench w/o DIM */
 #define KNOWN_BYTES	0      /* how many PIN bytes we know and skip it from calculation */
-#define CALC_BYTES  	3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-#define CPU_CLOCK  	true	 /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency */
-int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };		/* replace 0x00 by values for known PIN bytes */
+#define CALC_BYTES  	3    /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+#define CPU_CLOCK  	true    /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency */
+int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by values for known PIN bytes */
 
 /* end of tunable parameters */
 
