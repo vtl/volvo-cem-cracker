@@ -57,7 +57,7 @@ There are two possible solutions that may help:
 #define CALC_BYTES   2      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
 ```
 
-2. Another solution that may help - change value from 'true' to 'false' in the line #15:
+2. Another solution that may help - change the value from 'true' to 'false' in the line #15:
 ```
 #define CPU_CLOCK    false   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
 ```
