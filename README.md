@@ -51,27 +51,19 @@ Attempt 4:
 14:26:13.327 -> Candidate PIN 32 78 41 -- -- -- : brute forcing bytes 3 to 5 (3 bytes), will take up to 646 seconds
 ```
 
-There are two possible solutions that may help:
-1. Use brute force for rest of bytes - it may take 18-20 hours. To do it, change the following tunable parameter value to 2:
+There are possible solutions that may help:
+1. Use brute force for rest of bytes - it may take up to 18-20 hours. To do it, change the following tunable parameter value to 2 in line #16:
 ```
-#define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
-```
-
-2. Another solution that may help - comment out the following line:
-```
-set_arm_clock (180000000);
+#define CALC_BYTES   2      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
 ```
 
-And to avoid time waste, hardcode the first two bytes that you already know:
+2. And to avoid time waste, indicate the number of known bytes and hardcode the first bytes that you already know in lines #17 and #18:
 ```
-  /* try and crack each PIN position */
-  
-  // Add lines to skip first known bytes */
-  pin[0] = 0x32; // Known first byte example
-  pin[1] = 0x78; // Known second byte example
+#define KNOWN_BYTES  2      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
+int kpin[6] = { 0x32, 0x78, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by values for known PIN bytes. Default values are 0x00 */
+```
 
-  // Change initial value of i from 0 to 2
-  for (i = 2; i < maxBytes; i++) {
-    crackPinPosition (pin, i, verbose);
-  }
+3. Another solution that may help - change the value from 'true' to 'false' in the line #15:
+```
+#define CPU_CLOCK    false   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
 ```
