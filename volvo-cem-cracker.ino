@@ -8,6 +8,17 @@
  *
  */
 
+/* LCD1602 I2C connection
+ *
+ * TEENSY 4.1    1602 LCD i2c
+ * ----------------------
+ * 19 A5 SCL     SCL
+ * 18 A4 SDA     SDA
+ * 5V            VCC
+ * GND     	 GND
+ *
+ */
+
 /* Abort button connects GND on PIN 3, normal open */
 
 /* tunable parameters */
@@ -16,6 +27,7 @@
 #define ABORT_BUTTON  3      /* Abort button to stop operation and reset ECUs */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
 #define CPU_CLOCK     true   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
+#define LCD           true   /* true - to print out info on 1602 LCD connected via i2c. Default value is false */
 #define CALC_BYTES    3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
 #define KNOWN_BYTES   0      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
 #define initValue     0      /* the initial value for brut-force search. Default value is 0 */
@@ -26,6 +38,10 @@ bool abort_button = false;
 
 #include <stdio.h>
 #include <FlexCAN_T4.h>
+
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+  LiquidCrystal_I2C lcd (0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
 #if !defined(__IMXRT1062__)
 #error Unsupported Teensy model, need 4.x
@@ -422,6 +438,12 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
     printf ("Last tried sequence was %02x %02x %02x %02x %02x %02x\n", pin[0], pin[1], pin[2], pin[3], pin[4], pin[5]);
     printf ("based on last tried sequnce the last tried PIN was %02x %02x %02x %02x %02x %02x\n\n", pMsgPin[0], pMsgPin[1], pMsgPin[2], pMsgPin[3], pMsgPin[4], pMsgPin[5]);
 
+    if (LCD == true)
+    {
+      lcd.setCursor(0, 0);
+      lcd.print("Aborted by User!");
+    }
+
     return true;
   }
 
@@ -607,6 +629,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
   int k;
   int xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
   int xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
+  char lcd_message [17];
 
   /* clear collected latencies */
 
@@ -640,6 +663,16 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
     for (i = 0; i <= pos; i++) {
       printf ("%02x ", pin[i]);
+	    
+      if (LCD == true)
+      {
+        if ( i < pos )
+    	{
+          lcd.setCursor(i *2, 1);
+          sprintf(lcd_message, "%02x", pin[i]);
+          lcd.print(lcd_message);
+        }
+      }
     }
 
     /* placeholder for the unknown digits */
@@ -789,12 +822,23 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
   uint32_t end;
   uint32_t percent = 0;
   uint32_t percent_5;
+  uint32_t percent1 = 0;
+  uint32_t percent_1;
   uint32_t crackRate;
   uint32_t remainingBytes;
   bool     cracked = false;
   int      i;
+  char     lcd_message [17];
 
   printf ("Calculating bytes 0-%u\n", maxBytes - 1);
+
+  if (LCD == true)
+  {
+    lcd.setCursor(0, 0);
+    lcd.print("In Progress ...");
+    lcd.setCursor(8, 1);
+    lcd.print("Calc");
+  }
 
   /* profile the CEM to see how fast it can process requests */
 
@@ -816,6 +860,13 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
   /* try and crack each PIN position */
 
   for (i = knownBytes; i < maxBytes; i++) {
+
+    if (LCD == true)
+    {
+      lcd.setCursor(i *2, 1);
+      lcd.print("xx");
+    }
+
     crackPinPosition (pin, i, verbose);
     
     if ( abort_button == true )
@@ -837,6 +888,17 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
   for (i=0; i < maxBytes; i++) {
     printf ("%02x ", pin[i]);
+
+    if (LCD == true)
+    {
+      if ( i < maxBytes )
+      {
+        lcd.setCursor(i *2, 1);
+        sprintf(lcd_message, "%02x", pin[i]);
+        lcd.print(lcd_message);
+      }
+    }
+
   }
 
   /* placeholder for the remaining digits */
@@ -850,9 +912,17 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
           maxBytes, PIN_LEN - 1, remainingBytes, initValue,
           (uint32_t)((pow (100, remainingBytes) - initValue)/ crackRate));
 
+  if (LCD == true)
+  {
+    lcd.setCursor(8, 1);
+    lcd.print("Brut");
+  }
+	
   /* 5% of the remaining PINs to try */
-
-  percent_5 = (pow (100, (remainingBytes)) - initValue)/20;
+  percent_5 = ( pow (100, (remainingBytes)) - initValue ) / 20;
+  
+  /* 1% of the remaining PINs to try to print on LCD */
+  percent_1 = ( pow (100, (remainingBytes)) - initValue ) / 100;
 
   printf ("Progress: ");
 
@@ -876,11 +946,33 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
     /* try and unlock with this PIN */
 
-    if (cemUnlock (pin, pinUsed, NULL, verbose)) {
+    if (cemUnlock (pin, pinUsed, NULL, verbose))
+    {
 
       if ( abort_button == true )
       {
         printf ("Last tried brut-force value is %010d\n", i);
+
+	if (LCD == true)
+        {
+          lcd.setCursor(0, 1);
+          lcd.print("Last  ");
+          sprintf(lcd_message, "%010d", i); lcd.print(lcd_message);
+          
+          // Alternative printing of last used brut-force value
+          /* 
+          for( int j = 1 ; j < 6 ; j++ )
+          {
+            if ( j < CALC_BYTES )
+              lcd.print("00");
+            else
+            {
+              sprintf(lcd_message, "%02x", pin[j]);
+              lcd.print(lcd_message);
+            }
+          }
+          */  
+        }
     	break;
       }
 
@@ -900,6 +992,18 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
       printf ("%u%%..", percent * 5);
       percent++;
     }
+	  
+    if (LCD == true)
+    {
+      if (((i-initValue) % percent_1) == 0)
+      {
+        lcd.setCursor(13, 1);
+        sprintf(lcd_message, "%02lu%%", percent1);
+        lcd.print(lcd_message);
+        percent1++;
+      }
+    }
+
   }
 
   if ( abort_button == true )
@@ -908,7 +1012,18 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
   /* print "100%" into progress line in case PIN has not been cracked */
 
    if (cracked == false)
+   {
     printf ("%u%%", percent * 5);
+    if ( LCD == true )
+    {
+      lcd.setCursor(13, 1);
+      lcd.print("fin");
+      lcd.setCursor(0, 0);
+      if (cracked == false)
+        lcd.print("PIN is UNcracked");
+    }
+	   
+   }
 
   /* print execution summary */
 
@@ -948,6 +1063,15 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
     if ((can_id == 3) &&
       (data[0] == CEM_HS_ECU_ID) && (data[1] == 0xB9) && (data[2] == 0x00)) {
       printf ("PIN verified.\n");
+	    
+      if (LCD == true)
+      {
+        sprintf(lcd_message, "PIN %02x%02x%02x%02x%02x%02x", pinUsed[0], pinUsed[1], pinUsed[2], pinUsed[3], pinUsed[4], pinUsed[5]);
+        lcd.print(lcd_message);
+        lcd.setCursor(0, 1);
+        lcd.print("PIN verified.   ");
+      }
+
     } else {
       printf ("PIN verification failed!\n");
     }
@@ -1062,6 +1186,15 @@ void setup (void)
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
 
+  if (LCD == true)
+  {
+    lcd.init();
+    lcd.clear();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Starting ...");
+  }
+
   long pn = 0;
 
 #if defined(CEM_PN_AUTODETECT)
@@ -1106,6 +1239,13 @@ void setup (void)
 
   initialized = true;
   printf ("Initialization done.\n\n");
+
+  if (LCD == true)
+  {
+    lcd.setCursor(0, 0);
+    lcd.print("Initialized ...");
+  }
+
 }
 
 /*******************************************************************************
@@ -1122,6 +1262,17 @@ void loop (void)
 
   if (initialized)
     cemCrackPin (KNOWN_BYTES, CALC_BYTES, verbose);
+  else
+  {
+    printf("\nNot initialized\n\n");
+    if (LCD == true)
+    {
+      lcd.setCursor(0, 0);
+      lcd.print("Not Initialized ");
+      lcd.setCursor(0, 1);
+      lcd.print("  Exit");
+    }
+  }
 
   /* exit ECU programming mode */
 
