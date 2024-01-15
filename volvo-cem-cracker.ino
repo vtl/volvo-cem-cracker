@@ -15,6 +15,7 @@
 #define CPU_CLOCK    true   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
 #define CALC_BYTES   3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
 #define KNOWN_BYTES  0      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
+#define initValue    0      /* the initial value for brut-force search. Default value is 0 */
 int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by values for known PIN bytes. Default values are 0x00 */
 
 /* end of tunable parameters */
@@ -23,7 +24,7 @@ int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by valu
 #include <FlexCAN_T4.h>
 
 #if !defined(__IMXRT1062__)
-#error Unsupported Teensy model, need 4.0
+#error Unsupported Teensy model, need 4.x
 #endif
 
 int cem_reply_min;
@@ -158,7 +159,7 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
   CAN_message_t msg;
 
   if (verbose == true) {
-      printf ("CAN_%cS ---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+      printf ("CAN_%cS ---> ID=%08x data= %02x %02x %02x %02x %02x %02x %02x %02x\n",
               bus == CAN_HS ? 'H' : 'L',
               id, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
    }
@@ -244,7 +245,7 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
   /* print the message we received */
 
   if (verbose) {
-    printf ("CAN_%cS <--- ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+    printf ("CAN_%cS <--- ID=%08x data= %02x %02x %02x %02x %02x %02x %02x %02x\n",
             bus == CAN_HS ? 'H' : 'L',
             canId, pData[0], pData[1], pData[2], pData[3], pData[4], pData[5], pData[6], pData[7]);
   }
@@ -815,13 +816,13 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
     i++;
   }
 
-  printf (": brute forcing bytes %u to %u (%u bytes), will take up to %u seconds\n",
-          maxBytes, PIN_LEN - 1, remainingBytes,
-          (uint32_t)(pow (100, remainingBytes) / crackRate));
+  printf (": brute forcing bytes %u to %u (%u bytes), initial value is %u, will take up to %u seconds\n",
+          maxBytes, PIN_LEN - 1, remainingBytes, initValue,
+          (uint32_t)((pow (100, remainingBytes) - initValue)/ crackRate));
 
   /* 5% of the remaining PINs to try */
 
-  percent_5 = pow (100, (remainingBytes))/20;
+  percent_5 = (pow (100, (remainingBytes)) - initValue)/20;
 
   printf ("Progress: ");
 
@@ -830,7 +831,7 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
    * Each byte has a value 0-99 so we iterare for 100^remainingBytes values
    */
 
-  for (i = 0; i < pow (100, (remainingBytes)); i++) {
+  for (i = initValue; i < pow (100, (remainingBytes)); i++) {
     uint32_t pinValues = i;
 
     /* fill in each of the remaining PIN values */
@@ -859,7 +860,7 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
     /* print a periodic progress message */
 
-    if ((i % percent_5) == 0) {
+    if (((i - initValue) % percent_5) == 0) {
       printf ("%u%%..", percent * 5);
       percent++;
     }
