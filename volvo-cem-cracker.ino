@@ -8,15 +8,19 @@
  *
  */
 
+/* Abort button connects GND on PIN 3, normal open */
+
 /* tunable parameters */
 
-//#define  DUMP_BUCKETS     /* dump all buckets for debugging */
-#define CEM_PN_AUTODETECT   /* comment out for P2 CEM-L on the bench w/o DIM */
-#define CPU_CLOCK    true   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
-#define CALC_BYTES   3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
-#define KNOWN_BYTES  0      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
-#define initValue    0      /* the initial value for brut-force search. Default value is 0 */
+//#define  DUMP_BUCKETS        /* dump all buckets for debugging */
+#define ABORT_BUTTON  3      /* Abort button to stop operation and reset ECUs */
+#define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
+#define CPU_CLOCK     true   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
+#define CALC_BYTES    3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
+#define KNOWN_BYTES   0      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
+#define initValue     0      /* the initial value for brut-force search. Default value is 0 */
 int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by values for known PIN bytes. Default values are 0x00 */
+bool abort_button = false;
 
 /* end of tunable parameters */
 
@@ -354,6 +358,7 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   uint64_t start, end, limit;
   uint32_t id;
   uint32_t maxTime = 0;
+  bool press;
 
   /* shuffle the PIN and set it in the request message */
 
@@ -405,6 +410,19 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   if (pinUsed != NULL) {
     memcpy (pinUsed, pMsgPin, PIN_LEN);
+  }
+
+  press = digitalRead( ABORT_BUTTON );
+  if ( press == false )
+    abort_button = true;
+
+  if ( abort_button == true )
+  {
+    printf ("\n\nAborted by pressed button\n");
+    printf ("Last tried sequence was %02x %02x %02x %02x %02x %02x\n", pin[0], pin[1], pin[2], pin[3], pin[4], pin[5]);
+    printf ("based on last tried sequnce the last tried PIN was %02x %02x %02x %02x %02x %02x\n\n", pMsgPin[0], pMsgPin[1], pMsgPin[2], pMsgPin[3], pMsgPin[4], pMsgPin[5]);
+
+    return true;
   }
 
   /* a reply of 0x00 indicates CEM was unlocked */
@@ -570,6 +588,9 @@ void crackPinPosition(uint8_t *pin, uint32_t pos, bool verbose)
 
   for (i = 0; i < 7; i++) {
     crack_range(pin, pos, seq, ranges[i], samples[i], verbose);
+
+    if ( abort_button == true )
+      return;
   }
 }
 
@@ -652,6 +673,9 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
         cemUnlock (pin, NULL, &latency, verbose);
 
+        if ( abort_button == true )
+          return;
+        
         /* calculate the index into the historgram */
 
         int idx = latency / clockCyclesPerMicrosecond();
@@ -793,7 +817,13 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
   for (i = knownBytes; i < maxBytes; i++) {
     crackPinPosition (pin, i, verbose);
+    
+    if ( abort_button == true )
+      break;
   }
+  
+  if ( abort_button == true )
+    break;
 
   /* number of PIN bytes remaining to find */
 
@@ -848,8 +878,14 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
     if (cemUnlock (pin, pinUsed, NULL, verbose)) {
 
-      /* the PIN worked, print it and terminate the search */
+      if ( abort_button == true )
+	  	{
+        printf ("Last tried brut-force value is %010d\n", i);
+    		break;
+		  }
 
+      /* the PIN worked, print it and terminate the search */
+      
       printf ("done\n");
       printf ("\nfound PIN: %02x %02x %02x %02x %02x %02x",
               pinUsed[0], pinUsed[1], pinUsed[2], pinUsed[3], pinUsed[4], pinUsed[5]);
@@ -865,6 +901,9 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
       percent++;
     }
   }
+
+  if ( abort_button == true )
+    return;
 
   /* print "100%" into progress line in case PIN has not been cracked */
 
@@ -1010,8 +1049,10 @@ void setup (void)
   ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
 
   /* set up the pin for sampling the CAN bus */
-
   pinMode (CAN_L_PIN, INPUT_PULLUP);
+
+  /* set up the pin as abort button */
+  pinMode (ABORT_BUTTON, INPUT_PULLUP);
 
   if (CPU_CLOCK)
     set_arm_clock (180000000);
@@ -1077,6 +1118,7 @@ void setup (void)
 void loop (void)
 {
   bool verbose = false;
+  bool press;
 
   if (initialized)
     cemCrackPin (KNOWN_BYTES, CALC_BYTES, verbose);
@@ -1088,5 +1130,10 @@ void loop (void)
   /* all done, stop */
 
   for (;;) {
+    
+    press = digitalRead(ABORT_BUTTON);
+    if ( press == false)
+	    progModeOff ();
+    
   }
 }
