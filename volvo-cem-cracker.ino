@@ -823,7 +823,7 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
   }
   
   if ( abort_button == true )
-    break;
+    return;
 
   /* number of PIN bytes remaining to find */
 
@@ -879,10 +879,10 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
     if (cemUnlock (pin, pinUsed, NULL, verbose)) {
 
       if ( abort_button == true )
-	  	{
+      {
         printf ("Last tried brut-force value is %010d\n", i);
-    		break;
-		  }
+    	break;
+      }
 
       /* the PIN worked, print it and terminate the search */
       
