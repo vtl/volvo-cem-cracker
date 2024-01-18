@@ -1,12 +1,14 @@
 # Volvo CEM pin cracker via OBD
 
 This is a fork of original Volvo CEM pin cracker via OBD https://github.com/vtl/volvo-cem-cracker
+
 Please visit the link above to view details of the project.
 
 This implementation has some minor features, which could be useful to someone:
 1) Abort button to exit from cracking process with ECUs exiting from programming mode. Pressing Abort button on brute-force stage leads to displaying last tried brute-force value.
 2) Allow to start brute-forcing from any value.
-3) i2c LCD support. In case
+3) i2c LCD support. Allows to disconnect cracker from PC and see the progress and result on LCD.
+
 ![Image](doc/volvo-cem-cracker-diagram.png)
 
 Let's look at this implementation as managed solution, all descriptions below assume that HW part is OK.
@@ -50,9 +52,14 @@ int kpin[6] = { 0x32, 0x78, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by valu
 
 4. To run brute-force starting non 0 number (for example if you stopped brute-force by Abort button at any point and you want to continue brute-forcing from the same point) you have to setup the required number as value of 'initValue' variable:
 ```
-#define initValue     001500      /* the initial value for brute-force search. Default value is 0 */
+uint32_t initValue = 0;    /* the initial value for brute-force search. Default value is 0 */
 ```
 Especialty it can be useful in case of 4 bytes brute-forcing, which could take upto 18 hours, this way brute-forcing can be splited to parts.
 
 ![Image](doc/cracker_photo.jpg)
 ![Image](doc/lcd1602.png)
+
+if you would like to hide displaying information on LCD change the value to 'false'
+```
+#define LCD           true   /* true - to print out info on 1602 LCD connected via i2c. Default value is true */
+```
