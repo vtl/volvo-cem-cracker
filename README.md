@@ -22,9 +22,9 @@ Find us at Matthew's Volvo Site for support: https://www.matthewsvolvosite.com/f
 
 Big thanks to an unidentified hacker from western Germany for hints!
 
-![Image](doc/schematic.png)
+![Image](doc/volvo-cem-cracker-diagram.png)
 
-![Image](doc/pin.png)
+![Image](doc/lcd1602.png)
 
 Cracking CEM pin in about 10 minutes (video):
 
