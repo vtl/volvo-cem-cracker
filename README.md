@@ -28,7 +28,7 @@ Big thanks to an unidentified hacker from western Germany for hints!
 
 Cracking CEM pin in about 10 minutes (video):
 
-[![Image](http://img.youtube.com/vi/w8GS_1SFgeg/0.jpg)](http://www.youtube.com/watch?v=w8GS_1SFgeg "Cracking CEM pin in about 10 minutes")
+![Image](doc/cracker_photo.jpg)
 
 ## Possible issues and fixes
 Depending on your CEM model, you may face some issues with PIN decoding. Here are some examples and recommendations.
