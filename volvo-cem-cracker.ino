@@ -15,7 +15,7 @@
  * 19 A5 SCL     SCL
  * 18 A4 SDA     SDA
  * 5V            VCC
- * GND     	 GND
+ * GND        	 GND
  *
  */
 
@@ -24,14 +24,14 @@
 /* tunable parameters */
 
 //#define  DUMP_BUCKETS        /* dump all buckets for debugging */
-#define ABORT_BUTTON  3      /* Abort button to stop operation and reset ECUs */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
+#define ABORT_BUTTON  3      /* Abort button to stop operation and reset ECUs */
 #define CPU_CLOCK     true   /* true - to limit CPU by 180 MHz, false - to unlimit CPU frequency. Default value is true */
-#define LCD           true   /* true - to print out info on 1602 LCD connected via i2c. Default value is false */
+#define LCD           true   /* true - to print out info on 1602 LCD connected via i2c. Default value is true */
 #define CALC_BYTES    3      /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced. Default value is 3 */
 #define KNOWN_BYTES   0      /* how many PIN bytes we know and skip it from calculation. Default value is 0 */
-#define initValue     0      /* the initial value for brut-force search. Default value is 0 */
 int kpin[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };    /* replace 0x00 by values for known PIN bytes. Default values are 0x00 */
+uint32_t initValue = 0;      /* the initial value for brute-force search. Default value is 0 */
 bool abort_button = false;
 
 /* end of tunable parameters */
@@ -374,7 +374,6 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
   uint64_t start, end, limit;
   uint32_t id;
   uint32_t maxTime = 0;
-  bool press;
 
   /* shuffle the PIN and set it in the request message */
 
@@ -428,22 +427,20 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
     memcpy (pinUsed, pMsgPin, PIN_LEN);
   }
 
-  press = digitalRead( ABORT_BUTTON );
-  if ( press == false )
-    abort_button = true;
+  /* read the abort button state */ 
+  abort_button = !digitalRead(ABORT_BUTTON);
 
-  if ( abort_button == true )
-  {
-    printf ("\n\nAborted by pressed button\n");
-    printf ("Last tried sequence was %02x %02x %02x %02x %02x %02x\n", pin[0], pin[1], pin[2], pin[3], pin[4], pin[5]);
-    printf ("based on last tried sequnce the last tried PIN was %02x %02x %02x %02x %02x %02x\n\n", pMsgPin[0], pMsgPin[1], pMsgPin[2], pMsgPin[3], pMsgPin[4], pMsgPin[5]);
+  if ( abort_button == true ) {
+    printf ("\n\nAborted by User!\n");
+    printf ("The last tried PIN was  %02x %02x %02x %02x %02x %02x  based on\n", pMsgPin[0], pMsgPin[1], pMsgPin[2], pMsgPin[3], pMsgPin[4], pMsgPin[5]);
+    printf ("the last tried sequence %02x %02x %02x %02x %02x %02x\n\n", pin[0], pin[1], pin[2], pin[3], pin[4], pin[5]);
 
-    if (LCD == true)
-    {
+    if (LCD == true) {
       lcd.setCursor(0, 0);
       lcd.print("Aborted by User!");
     }
 
+    /* exit from function in case Abort button has been pressed */
     return true;
   }
 
@@ -464,6 +461,7 @@ unsigned long ecu_read_part_number(can_bus_id_t bus, unsigned char id)
   int frame;
 
   printf("Reading part number from ECU 0x%02x on CAN_%cS\n", id, bus == CAN_HS ? 'H' : 'L');
+
 yet_again:
   canMsgSend(bus, 0xffffe, data, verbose);
   i = 0;
@@ -611,6 +609,7 @@ void crackPinPosition(uint8_t *pin, uint32_t pos, bool verbose)
   for (i = 0; i < 7; i++) {
     crack_range(pin, pos, seq, ranges[i], samples[i], verbose);
 
+    /* exit from function in case Abort button has been pressed */
     if ( abort_button == true )
       return;
   }
@@ -664,10 +663,8 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
     for (i = 0; i <= pos; i++) {
       printf ("%02x ", pin[i]);
 	    
-      if (LCD == true)
-      {
-        if ( i < pos )
-    	{
+      if (LCD == true) {
+        if ( i < pos ) {
           lcd.setCursor(i *2, 1);
           sprintf(lcd_message, "%02x", pin[i]);
           lcd.print(lcd_message);
@@ -706,6 +703,7 @@ void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bo
 
         cemUnlock (pin, NULL, &latency, verbose);
 
+        /* exit from function in case Abort button has been pressed */
         if ( abort_button == true )
           return;
         
@@ -832,8 +830,7 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
   printf ("Calculating bytes 0-%u\n", maxBytes - 1);
 
-  if (LCD == true)
-  {
+  if (LCD == true) {
     lcd.setCursor(0, 0);
     lcd.print("In Progress ...");
     lcd.setCursor(8, 1);
@@ -869,16 +866,25 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
     crackPinPosition (pin, i, verbose);
     
+    /* exit from for() in case Abort button has been pressed */
     if ( abort_button == true )
       break;
   }
   
+  /* exit from function in case Abort button has been pressed */
   if ( abort_button == true )
     return;
 
   /* number of PIN bytes remaining to find */
 
-  remainingBytes = PIN_LEN - maxBytes,
+  remainingBytes = PIN_LEN - maxBytes;
+
+  /* Check if initValue is higher then possible for the remainigBytes */
+  if ( initValue > pow ( 100, remainingBytes ) ) {
+    printf ("\nThe configured initial brute-force Value %u is more than maximum possible brute-forcing value %u for remaining %u bytes.\n", initValue, (uint32_t)(pow (100, remainingBytes)), remainingBytes ); 
+    printf ("The initial brute-force Value has been reset to 0.\n\n");
+    initValue = 0;
+  }
 
   /* show the result of the cracking */
 
@@ -889,11 +895,9 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
   for (i=0; i < maxBytes; i++) {
     printf ("%02x ", pin[i]);
 
-    if (LCD == true)
-    {
-      if ( i < maxBytes )
-      {
-        lcd.setCursor(i *2, 1);
+    if (LCD == true) {
+      if ( i < maxBytes ) {
+        lcd.setCursor(i * 2, 1);
         sprintf(lcd_message, "%02x", pin[i]);
         lcd.print(lcd_message);
       }
@@ -908,12 +912,12 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
     i++;
   }
 
-  printf (": brute forcing bytes %u to %u (%u bytes), initial value is %u, will take up to %u seconds\n",
+
+  printf (": brute-forcing bytes %u to %u (%u bytes), initial value is %u, will take up to %u seconds\n",
           maxBytes, PIN_LEN - 1, remainingBytes, initValue,
           (uint32_t)((pow (100, remainingBytes) - initValue)/ crackRate));
 
-  if (LCD == true)
-  {
+  if (LCD == true) {
     lcd.setCursor(8, 1);
     lcd.print("Brut");
   }
@@ -946,20 +950,17 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
     /* try and unlock with this PIN */
 
-    if (cemUnlock (pin, pinUsed, NULL, verbose))
-    {
+    if (cemUnlock (pin, pinUsed, NULL, verbose)) {
 
-      if ( abort_button == true )
-      {
-        printf ("Last tried brut-force value is %010d\n", i);
+      if ( abort_button == true ) {
+        printf ("Last tried brute-force value was %010d\n\n", i);
 
-	if (LCD == true)
-        {
+	      if (LCD == true) {
           lcd.setCursor(0, 1);
           lcd.print("Last  ");
           sprintf(lcd_message, "%010d", i); lcd.print(lcd_message);
           
-          // Alternative printing of last used brut-force value
+          // Alternative printing of last used brute-force value
           /* 
           for( int j = 1 ; j < 6 ; j++ )
           {
@@ -973,7 +974,8 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
           }
           */  
         }
-    	break;
+        /* exit from for() in case Abort button has been pressed */
+      	break;
       }
 
       /* the PIN worked, print it and terminate the search */
@@ -993,10 +995,8 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
       percent++;
     }
 	  
-    if (LCD == true)
-    {
-      if (((i-initValue) % percent_1) == 0)
-      {
+    if (LCD == true) {
+      if (((i-initValue) % percent_1) == 0) {
         lcd.setCursor(13, 1);
         sprintf(lcd_message, "%02lu%%", percent1);
         lcd.print(lcd_message);
@@ -1006,24 +1006,13 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
   }
 
+  /* exit from function in case Abort button has been pressed */
   if ( abort_button == true )
     return;
 
   /* print "100%" into progress line in case PIN has not been cracked */
-
-   if (cracked == false)
-   {
+  if (cracked == false)
     printf ("%u%%", percent * 5);
-    if ( LCD == true )
-    {
-      lcd.setCursor(13, 1);
-      lcd.print("fin");
-      lcd.setCursor(0, 0);
-      if (cracked == false)
-        lcd.print("PIN is UNcracked");
-    }
-	   
-   }
 
   /* print execution summary */
 
@@ -1062,18 +1051,25 @@ void cemCrackPin (int knownBytes, int maxBytes, bool verbose)
 
     if ((can_id == 3) &&
       (data[0] == CEM_HS_ECU_ID) && (data[1] == 0xB9) && (data[2] == 0x00)) {
-      printf ("PIN verified.\n");
+      printf ("PIN is verified.\n");
 	    
-      if (LCD == true)
-      {
+      if (LCD == true) {
+        lcd.setCursor(0, 0);
+        lcd.print("PIN is verified.");
+        lcd.setCursor(0, 1);
         sprintf(lcd_message, "PIN %02x%02x%02x%02x%02x%02x", pinUsed[0], pinUsed[1], pinUsed[2], pinUsed[3], pinUsed[4], pinUsed[5]);
         lcd.print(lcd_message);
-        lcd.setCursor(0, 1);
-        lcd.print("PIN verified.   ");
       }
 
     } else {
       printf ("PIN verification failed!\n");
+    }
+  } else {
+    if ( LCD == true ) {
+      lcd.setCursor(0, 0);
+      lcd.print("PIN is UNcracked");
+      lcd.setCursor(13, 1);
+      lcd.print("fin");
     }
   }
 
@@ -1186,8 +1182,7 @@ void setup (void)
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
 
-  if (LCD == true)
-  {
+  if (LCD == true) {
     lcd.init();
     lcd.clear();
     lcd.backlight();
@@ -1240,8 +1235,7 @@ void setup (void)
   initialized = true;
   printf ("Initialization done.\n\n");
 
-  if (LCD == true)
-  {
+  if (LCD == true) {
     lcd.setCursor(0, 0);
     lcd.print("Initialized ...");
   }
@@ -1258,19 +1252,16 @@ void setup (void)
 void loop (void)
 {
   bool verbose = false;
-  bool press;
 
   if (initialized)
     cemCrackPin (KNOWN_BYTES, CALC_BYTES, verbose);
-  else
-  {
+  else {
     printf("\nNot initialized\n\n");
-    if (LCD == true)
-    {
+    if (LCD == true) {
       lcd.setCursor(0, 0);
       lcd.print("Not Initialized ");
       lcd.setCursor(0, 1);
-      lcd.print("  Exit");
+      lcd.print("  Exited");
     }
   }
 
@@ -1282,8 +1273,9 @@ void loop (void)
 
   for (;;) {
     
-    press = digitalRead(ABORT_BUTTON);
-    if ( press == false)
+    /* call progModeOff() in case Abort button has been pressed */
+    abort_button = !digitalRead(ABORT_BUTTON);
+    if ( abort_button == true )
 	    progModeOff ();
     
   }
