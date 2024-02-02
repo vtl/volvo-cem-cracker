@@ -33,6 +33,7 @@ uint32_t cem_reply_max;
 
 #define CAN_L_PIN      PIND2     /* CAN Rx pin connected to digital pin 2 */
 #define CALC_BYTES_PIN PIND3     /* calculated bytes selection to digital pin 3 */
+#define ABORT_PIN      14        /* abort cracking request */
 
 #define CAN_500KBPS 500000      /* 500 Kbit speed */
 #define CAN_250KBPS 250000      /* 250 Kbit speed */
@@ -185,6 +186,24 @@ LiquidCrystal lcd (rs, en, d4, d5, d6, d7);
 /* forward declarations */
 
 bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose);
+
+/* abort request setting */
+
+volatile bool abortReq = false;
+
+/*******************************************************************************
+ *
+ * abortIsr - interrupt service routine for aborting request
+ *
+ * Returns: N/A
+ */
+
+void abortIsr (void)
+{
+  /* signal that we want to abort the operation */
+
+  abortReq = true;
+}
 
 /*******************************************************************************
  *
@@ -624,10 +643,10 @@ int seq_max_lat (const void *a, const void *b)
  *
  * crackPinPosition - attempt to find a specific digit in the PIN 
  *
- * Returns: N/A
+ * Returns: true if aborted
  */
 
-void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
+bool crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
 {
   uint8_t  seq[100];
   uint32_t i;
@@ -639,18 +658,24 @@ void crackPinPosition (uint8_t *pin, uint32_t pos, bool verbose)
   }
 
   for (i = 0; i < 7; i++) {
-    crack_range (pin, pos, seq, ranges[i], samples[i], verbose);
+
+    /* run through the range and exit if aborted */
+
+    if (crack_range (pin, pos, seq, ranges[i], samples[i], verbose))
+      return (true);
   }
+
+  return (false);
 }
 
 /*******************************************************************************
  *
  * crack_range - attempt to find PIN digit in a range
  *
- * Returns: N/A
+ * Returns: true if aborted
  */
 
-void crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint32_t samples, bool verbose)
+bool crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint32_t samples, bool verbose)
 {
   uint32_t len = sizeof(int) * (cem_reply_max - cem_reply_min);
   uint32_t *histogram = (uint32_t *)malloc (len);
@@ -731,6 +756,13 @@ void crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint
       /* collect latency measurements the PIN pair */
 
       for (uint32_t j = 0; j < samples; j++) {
+
+        /* check if an abort has been requested */
+  
+        if (abortReq) {
+          free (histogram);
+          return (true);
+        }
 
         pin[pos + 2] = range < 100 ? random (100, 255) : binToBcd (j % 100);
 
@@ -847,16 +879,18 @@ void crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint
   }
 
   free (histogram);
+
+  return (false);
 }
 
 /*******************************************************************************
  *
  * cemCrackPin - attempt to find the specified number of bytes in the CEM's PIN
  *
- * Returns: N/A
+ * Returns: true if aborted
  */
 
-void cemCrackPin (uint32_t maxBytes, bool verbose)
+bool cemCrackPin (uint32_t maxBytes, bool verbose)
 {
   uint8_t  pin[PIN_LEN];
   uint8_t  pinUsed[PIN_LEN];
@@ -889,7 +923,11 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   /* try and crack each PIN position */
 
   for (i = 0; i < maxBytes; i++) {
-    crackPinPosition (pin, i, verbose);
+
+    /* exit if an abort was requested */
+
+    if (crackPinPosition (pin, i, verbose))
+      return (true);
   }
 
   /* number of PIN bytes remaining to find */
@@ -932,6 +970,12 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
 
   for (i = 0; i < pow (100, (remainingBytes)); i++) {
     uint32_t pinValues = i;
+
+    /* check if an abort has been requested */
+  
+    if (abortReq) {
+      return (true);
+    }
 
     /* fill in each of the remaining PIN values */
 
@@ -1018,6 +1062,8 @@ void cemCrackPin (uint32_t maxBytes, bool verbose)
   }
 
   printf ("done\n");
+
+  return (false);
 }
 
 /*******************************************************************************
@@ -1091,7 +1137,7 @@ void can_hs_init (uint32_t baud)
 
 void ext_output1(const CAN_message_t &msg)
 {
-  intr = 1;
+  intr = true;
 }
 
 /*******************************************************************************
@@ -1259,6 +1305,11 @@ void setup (void)
 
   pinMode (CALC_BYTES_PIN, INPUT_PULLUP);
 
+  /* set up the pin and ISR for aborting */
+
+  pinMode (ABORT_PIN, INPUT_PULLUP);
+  attachInterrupt (digitalPinToInterrupt (ABORT_PIN), abortIsr, LOW);
+
   /* allow time for input pull-up resistors to settle */
 
   delayMicroseconds (10);
@@ -1351,8 +1402,12 @@ void loop (void)
 {
   bool verbose = false;
 
-  if (initialized)
-    cemCrackPin (calc_bytes, verbose);
+  if (initialized) {
+    if (cemCrackPin (calc_bytes, verbose)) {
+      printf ("Cracking aborted!\n");
+      lcd_printf (0, 1, "Aborted!        ");
+    }
+  }
 
   /* exit ECU programming mode */
 

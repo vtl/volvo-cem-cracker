@@ -24,6 +24,10 @@ Big thanks to an unidentified hacker from western Germany for hints!
 
 ![Image](doc/schematic.png)
 
+An optional LCD display can be added for stand-alone operation.
+
+![Image](doc/schematic_LCD.png)
+
 ![Image](doc/pin.png)
 
 Cracking CEM pin in about 10 minutes (video):
