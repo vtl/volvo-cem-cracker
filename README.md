@@ -7,7 +7,7 @@ Please visit the link above to view details of the original project.
 This implementation has some minor features, which could be useful to someone:
 1. 'Abort' button to exit from the cracking process with ECUs exiting from programming mode. Pressing the 'Abort' button on the brute-force stage leads to displaying the last tried brute-force value.
 2. Allows to run brute-forcing starting any value.
-3. i2c LCD support. Allows you to disconnect the cracker from the PC and see the progress and result on the LCD. LCD displays, the current step is on the top line, while the progress of the running step, intermediate and final results are displayed on the bottom line.
+3. i2c LCD support. Allows you to disconnect the cracker from the PC and see the progress and result on the LCD, the current step is on the top line, while the progress of the running step, intermediate and final results are displayed on the bottom line.
 
 LCD support in current implementation does not assume fully autonomous operation without connection to PC. Viewing the operation log on PC is still an important part required for understanding what the hell is going on. But in many cases for example long brute-forcing of 4 remaining bytes LCD is useful not to keep a PC in the car.
 
