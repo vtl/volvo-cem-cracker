@@ -3,6 +3,7 @@
  * Copyright (C) 2020, 2021 Vitaly Mayatskikh <v.mayatskih@gmail.com>
  *               2020 Christian Molson <christian@cmolabs.org>
  *               2020 Mark Dapoz <md@dapoz.ca>
+ *               2026 Rick Hale Parker RickParker22@gmail.com
  *
  * This work is licensed under the terms of the GNU GPL, version 3.
  *
@@ -13,6 +14,7 @@
 #define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
 //#define  DUMP_BUCKETS      /* dump all buckets for debugging */
+#define DISABLE_ARM_SPECULATION    /* comment out to re-enable ARM speculation */
 
 /* end of tunable parameters */
 
@@ -1296,6 +1298,34 @@ void setup (void)
 
   ARM_DEMCR |= ARM_DEMCR_TRCENA;
   ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
+
+#if defined(DISABLE_ARM_SPECULATION)
+
+  /* Turn off the Cortex-M7's speculative/dual-issue behavior via the
+   * Auxiliary Control Register (ACTLR, ARMv7-M Architecture Reference
+   * Manual, also documented in the Cortex-M7 TRM).
+   *
+   * Bits disabled here:
+   *   DISBTACREAD (13) - stop speculative reads driven by the branch
+   *                       target address cache; a mispredicted branch
+   *                       can otherwise let the core fetch/read past
+   *                       a not-yet-taken branch
+   *   DISFOLD      (0) - disable dual-issue instruction folding
+   *   DISWBUF      (1) - disable the store (write) buffer, so writes
+   *                       retire in program order instead of being
+   *                       queued
+   *   DISDEFWBUF  (14) - disable the default write buffer used for
+   *                       AHBP (peripheral) writes
+   *
+   */
+
+#define CEM_ARM_ACTLR (*(volatile uint32_t *)0xE000E008)
+
+  CEM_ARM_ACTLR |= (1u << 13) | (1u << 0) | (1u << 1) | (1u << 14);
+
+  printf ("ARM core speculation disabled (ACTLR = 0x%08lx)\n", (unsigned long)CEM_ARM_ACTLR);
+
+#endif
 
   /* set up the pin for sampling the CAN bus */
 
