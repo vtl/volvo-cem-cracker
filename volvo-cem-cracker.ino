@@ -134,6 +134,7 @@ struct _cem_params {
   { 30795115, CAN_500KBPS, 1 },
   { 31282455, CAN_500KBPS, 1 },
   { 31394157, CAN_500KBPS, 1 },
+  { 30786578, CAN_500KBPS, 1 },
   { 30786579, CAN_500KBPS, 1 },
 };
 
