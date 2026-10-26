@@ -728,17 +728,28 @@ bool crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint
 
     printf ("[ ");
 
-    /* show numerial values for the known digits */
+    /* show the candidate in actual PIN byte order, not crack/shuffle
+     * order: each cracked step s lives at wire slot shuffle_order[s].
+     * The byte being scanned right now (step pos) is wrapped in [ ]. */
 
-    for (i = 0; i <= pos; i++) {
-      printf ("%02x ", pin[i]);
-    }
+    {
+      bool     known[PIN_LEN] = { false };
+      uint8_t  shown[PIN_LEN];
+      uint32_t s;
 
-    /* placeholder for the unknown digits */
+      for (s = 0; s <= pos; s++) {
+        known[shuffle_order[s]] = true;
+        shown[shuffle_order[s]] = pin[s];
+      }
 
-    while (i < PIN_LEN) {
-      printf ("-- ");
-      i++;
+      for (s = 0; s < PIN_LEN; s++) {
+        if (!known[s])
+          printf ("-- ");
+        else if (s == shuffle_order[pos])
+          printf ("[%02x] ", shown[s]);
+        else
+          printf ("%02x ", shown[s]);
+      }
     }
 
     printf ("]: ");
@@ -1358,6 +1369,24 @@ void setup (void)
   printf ("PIN bytes to measure:    %u\n", calc_bytes);
 
   uint32_t pn = 0;
+
+  /* 2026-09-14: per community guidance (Matthews Volvo Site, "Vida CEM
+   * swapping" thread), the CEM must not already be powered/settled into
+   * normal operation when PROG-mode entry is broadcast below -- it should
+   * be powered up right as that broadcast starts. Reaching that point at a
+   * fixed spot in automatic boot timing makes that a race the operator
+   * can't reliably win by hand. Wait here instead: power the CEM whenever
+   * ready, then send Enter, and discovery + PROG mode start immediately
+   * after, back-to-back. */
+
+  printf ("Power up the CEM now, then send Enter to start CEM discovery + PROG mode.\n");
+  lcd_printf (0, 1, "Power CEM, Enter");
+
+  while (!Serial.available ()) {
+    /* wait for the operator */
+  }
+  while (Serial.available ())
+    Serial.read ();
 
 #if defined(CEM_PN_AUTODETECT)
   bool hs_inited = false;
