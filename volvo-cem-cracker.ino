@@ -16,6 +16,7 @@
 //#define  DUMP_BUCKETS      /* dump all buckets for debugging */
 #define DISABLE_ARM_SPECULATION    /* comment out to re-enable ARM speculation */
 //#define PIN_PRINT_IN_ORDER   /* comment out to print the PIN in crack order */
+//#define BENCH_CRACKING       /* crack CEM on the bench */
 
 /* end of tunable parameters */
 
@@ -1375,6 +1376,16 @@ void setup (void)
   printf ("PIN bytes to measure:    %u\n", calc_bytes);
 
   uint32_t pn = 0;
+
+#if defined(BENCH_CRACKING)
+  printf ("Power up the CEM now, then send Enter to start CEM discovery + PROG mode.\n");
+  lcd_printf (0, 1, "Power CEM, Enter");
+
+  while (!Serial.available ())
+    ;
+  while (Serial.available ())
+    Serial.read ();
+#endif
 
 #if defined(CEM_PN_AUTODETECT)
   bool hs_inited = false;
