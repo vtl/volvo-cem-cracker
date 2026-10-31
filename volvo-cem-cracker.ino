@@ -15,6 +15,7 @@
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
 //#define  DUMP_BUCKETS      /* dump all buckets for debugging */
 #define DISABLE_ARM_SPECULATION    /* comment out to re-enable ARM speculation */
+#define PIN_PRINT_IN_ORDER    /* comment out to print the PIN in crack order */
 
 /* end of tunable parameters */
 
@@ -730,6 +731,21 @@ bool crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint
 
     /* show numerial values for the known digits */
 
+#if defined(PIN_PRINT_IN_ORDER)
+    {
+      char pin_msg[PIN_LEN * 3 + 1];
+
+      strncpy (pin_msg, "-- -- -- -- -- -- ", sizeof (pin_msg));
+
+      for (i = 0; i <= pos; i++) {
+        char tmp[3];
+        snprintf (tmp, sizeof (tmp), "%02x", pin[i]);
+        strncpy (pin_msg + 3 * shuffle_order[i], tmp, 2);
+      }
+
+      printf ("%s", pin_msg);
+    }
+#else
     for (i = 0; i <= pos; i++) {
       printf ("%02x ", pin[i]);
     }
@@ -740,6 +756,7 @@ bool crack_range (uint8_t *pin, uint32_t pos, uint8_t *seq, uint32_t range, uint
       printf ("-- ");
       i++;
     }
+#endif
 
     printf ("]: ");
 
